@@ -1,1 +1,6 @@
 zstandard
+python-chess
+torch
+torch-geometric
+pandas
+tqdm
