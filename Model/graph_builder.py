@@ -7,24 +7,32 @@ PIECE_TYPES = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, 
 
 def board_to_pyg_data(board: chess.Board, clock_seconds: float = 0.0, label: dict | None = None) -> Data:
     """Converte board in torch_geometric.data.Data.
-    Nodi: 64 case, feature = [has_piece, piece_type(0-6), color(-1/0/1), clock_norm]
-    Archi: legal_move / attack / pin (con edge_attr type-id)
-    label: dict opzionale {'mate_n': int|None, 'best_move_idx': int} per training supervisionato
-    """
+    Nodi: 64 caselle, feature = [has_piece, piece_type(0-6), color(-1/0/1), clock_norm,
+                               turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
+    Archi: legal_move, attack, pin """
+
     piece_map = board.piece_map()
-    x = torch.zeros((64, 4), dtype=torch.float)
-    clock_norm = min(clock_seconds / 60.0, 1.0)  # normalizza su 60s
+    x = torch.zeros((64, 10), dtype=torch.float)
+    clock_norm = min(clock_seconds / 60.0, 1.0)  #60 da cambiare poi 
+
+    turn = 1.0 if board.turn == chess.WHITE else 0.0
+    is_check = 1.0 if board.is_check() else 0.0
+    castle_wk = 1.0 if board.has_kingside_castling_rights(chess.WHITE) else 0.0
+    castle_wq = 1.0 if board.has_queenside_castling_rights(chess.WHITE) else 0.0
+    castle_bk = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0
+    castle_bq = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0
+    global_feat = [turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
 
     for sq in chess.SQUARES:
         piece = piece_map.get(sq)
         if piece:
             ptype = PIECE_TYPES.index(piece.piece_type) + 1
-            x[sq] = torch.tensor([1.0, ptype, float(int(piece.color)), clock_norm])
+            x[sq] = torch.tensor([1.0, ptype, float(int(piece.color)), clock_norm] + global_feat)
         else:
-            x[sq] = torch.tensor([0.0, 0.0, -1.0, clock_norm])
+            x[sq] = torch.tensor([0.0, 0.0, -1.0, clock_norm] + global_feat)
 
     edge_index = []
-    edge_attr = []  # 0=legal_move, 1=attack, 2=pin
+    edge_attr = []  #0=legal_move, 1=attack, 2=pin
 
     for move in board.legal_moves:
         edge_index.append([move.from_square, move.to_square])
