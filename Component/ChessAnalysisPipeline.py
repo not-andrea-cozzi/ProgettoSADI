@@ -1,12 +1,13 @@
 import io
+import os
 import multiprocessing as mp
+from Model.graph_builder import GraphBuilder
 import chess
 import chess.pgn
 import chess.engine
 import zstandard as zstd
 import torch
 from tqdm import tqdm
-from Model.graph_builder import board_to_pyg_data
 
 _engine = None
 
@@ -24,7 +25,7 @@ class ChessAnalysisPipeline:
         self.mate_range = mate_range
         self.time_limit = time_limit
         self.multipv = multipv
-        self.workers = workers or mp.cpu_count()
+        self.workers = 5
         self.max_games = max_games
 
     @staticmethod
@@ -69,7 +70,7 @@ class ChessAnalysisPipeline:
 
                     clock = self._extract_clock(comment) or 15.0
                     label = {"mate_n": mate_n, "best_move_idx": best_idx}
-                    d = board_to_pyg_data(board, clock_seconds=clock, label=label)
+                    d = GraphBuilder.board_to_pyg_data(board, clock_seconds=clock, label=label)
                     d.game_id = game_id
                     data_list.append(d)
 
@@ -107,6 +108,12 @@ class ChessAnalysisPipeline:
                 yield gid, str(g)
 
     def run(self):
+        # Verifica ANCHE prima di iniziare la scansione (che puo' richiedere decine di minuti),
+        # cosi' l'errore per path mancante esce subito e non dopo aver buttato via il lavoro.
+        out_dir = os.path.dirname(self.output_pt)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
         all_data = []
         with mp.Pool(self.workers, initializer=self._init_worker, initargs=(self.stockfish_path,)) as pool:
             gen = self._stream_pgn_texts()
@@ -114,5 +121,8 @@ class ChessAnalysisPipeline:
                                    desc="Scansione", total=self.max_games):
                 all_data.extend(data_list)
 
+        # Doppio check: se la cartella e' stata rimossa nel frattempo, non perdere comunque il lavoro.
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         torch.save(all_data, self.output_pt)
         return all_data

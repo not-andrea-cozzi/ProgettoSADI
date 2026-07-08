@@ -1,66 +1,100 @@
+import math
 import torch
 import chess
 from torch_geometric.data import Data
 
 PIECE_TYPES = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]
+PIECE_TYPE_IDX = {pt: i + 1 for i, pt in enumerate(PIECE_TYPES)}
 
 
-def board_to_pyg_data(board: chess.Board, clock_seconds: float = 0.0, label: dict | None = None) -> Data:
-    """Converte board in torch_geometric.data.Data.
+class GraphBuilder:
+    """Costruisce oggetti torch_geometric.data.Data a partire da una chess.Board.
+
     Nodi: 64 caselle, feature = [has_piece, piece_type(0-6), color(-1/0/1), clock_norm,
                                turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
-    Archi: legal_move, attack, pin """
+    Archi: legal_move, attack, pin
+    """
 
-    piece_map = board.piece_map()
-    x = torch.zeros((64, 10), dtype=torch.float)
-    clock_norm = min(clock_seconds / 60.0, 1.0)  #60 da cambiare poi 
+    CLOCK_CAP_SECONDS = 600.0  # oltre questa soglia clock_norm satura a 1.0 (log-scale)
 
-    turn = 1.0 if board.turn == chess.WHITE else 0.0
-    is_check = 1.0 if board.is_check() else 0.0
-    castle_wk = 1.0 if board.has_kingside_castling_rights(chess.WHITE) else 0.0
-    castle_wq = 1.0 if board.has_queenside_castling_rights(chess.WHITE) else 0.0
-    castle_bk = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0
-    castle_bq = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0
-    global_feat = [turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
+    @staticmethod
+    def _clock_norm(clock_seconds: float) -> float:
+        """Normalizzazione log-scale: preserva la differenza tra clock brevi (bullet/blitz)
+        senza schiacciare tutto cio' che supera pochi minuti come farebbe una scala lineare."""
+        cap = GraphBuilder.CLOCK_CAP_SECONDS
+        return min(math.log1p(max(clock_seconds, 0.0)) / math.log1p(cap), 1.0)
 
-    for sq in chess.SQUARES:
-        piece = piece_map.get(sq)
-        if piece:
-            ptype = PIECE_TYPES.index(piece.piece_type) + 1
-            x[sq] = torch.tensor([1.0, ptype, float(int(piece.color)), clock_norm] + global_feat)
-        else:
-            x[sq] = torch.tensor([0.0, 0.0, -1.0, clock_norm] + global_feat)
+    @staticmethod
+    def board_to_pyg_data(board: chess.Board, clock_seconds: float = 0.0, label: dict | None = None,
+                           legal_moves: list | None = None) -> Data:
+        """Converte board in torch_geometric.data.Data.
 
-    edge_index = []
-    edge_attr = []  #0=legal_move, 1=attack, 2=pin
+        legal_moves: se già calcolate dal caller, passarle qui per evitare di rigenerarle
+                     (board.legal_moves) una seconda volta."""
 
-    for move in board.legal_moves:
-        edge_index.append([move.from_square, move.to_square])
-        edge_attr.append(0)
+        piece_map = board.piece_map()
+        clock_norm = GraphBuilder._clock_norm(clock_seconds)
 
-    for sq, piece in piece_map.items():
-        for target_sq in board.attacks(sq):
-            edge_index.append([sq, target_sq])
-            edge_attr.append(1)
-        if board.is_pinned(piece.color, sq):
-            for ray_sq in chess.SquareSet(board.pin(piece.color, sq)):
-                attacker = piece_map.get(ray_sq)
-                if attacker and attacker.color != piece.color and attacker.piece_type in (chess.BISHOP, chess.ROOK, chess.QUEEN):
-                    edge_index.append([ray_sq, sq])
-                    edge_attr.append(2)
+        turn = 1.0 if board.turn == chess.WHITE else 0.0
+        is_check = 1.0 if board.is_check() else 0.0
+        castle_wk = 1.0 if board.has_kingside_castling_rights(chess.WHITE) else 0.0
+        castle_wq = 1.0 if board.has_queenside_castling_rights(chess.WHITE) else 0.0
+        castle_bk = 1.0 if board.has_kingside_castling_rights(chess.BLACK) else 0.0
+        castle_bq = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0
+        global_feat = [turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
 
-    if not edge_index:
-        edge_index = [[0, 0]]
-        edge_attr = [0]
+        # --- costruzione feature nodi (vettorizzata, niente loop di 64 torch.tensor(...)) ---
+        x = torch.zeros((64, 10), dtype=torch.float)
+        x[:, 2] = -1.0  # default: nessun pezzo -> color = -1
+        x[:, 3] = clock_norm
+        x[:, 4:10] = torch.tensor(global_feat, dtype=torch.float)
 
-    data = Data(
-        x=x,
-        edge_index=torch.tensor(edge_index, dtype=torch.long).t().contiguous(),
-        edge_attr=torch.tensor(edge_attr, dtype=torch.long),
-    )
+        if piece_map:
+            squares = torch.tensor(list(piece_map.keys()), dtype=torch.long)
+            ptypes = torch.tensor([PIECE_TYPE_IDX[p.piece_type] for p in piece_map.values()], dtype=torch.float)
+            colors = torch.tensor([float(int(p.color)) for p in piece_map.values()], dtype=torch.float)
+            x[squares, 0] = 1.0
+            x[squares, 1] = ptypes
+            x[squares, 2] = colors
 
-    if label:
-        data.mate_n = torch.tensor([label.get("mate_n") or 0], dtype=torch.long)
-        data.y = torch.tensor([label.get("best_move_idx", -1)], dtype=torch.long)
+        # --- costruzione archi ---
+        edge_src, edge_dst, edge_type = [], [], []  # 0=legal_move, 1=attack, 2=pin
 
-    return data
+        if legal_moves is None:
+            legal_moves = list(board.legal_moves)
+        for move in legal_moves:
+            edge_src.append(move.from_square)
+            edge_dst.append(move.to_square)
+            edge_type.append(0)
+
+        for sq, piece in piece_map.items():
+            for target_sq in board.attacks(sq):
+                edge_src.append(sq)
+                edge_dst.append(target_sq)
+                edge_type.append(1)
+
+            # un'unica chiamata a pin() al posto di is_pinned()+pin(): se il pezzo non e'
+            # pinnato, pin() ritorna uno SquareSet "pieno" (lunghezza 64) da ignorare.
+            pin_ray = board.pin(piece.color, sq)
+            if len(pin_ray) < 64:
+                for ray_sq in pin_ray:
+                    attacker = piece_map.get(ray_sq)
+                    if attacker and attacker.color != piece.color and attacker.piece_type in (chess.BISHOP, chess.ROOK, chess.QUEEN):
+                        edge_src.append(ray_sq)
+                        edge_dst.append(sq)
+                        edge_type.append(2)
+
+        if not edge_src:
+            edge_src, edge_dst, edge_type = [0], [0], [0]
+
+        data = Data(
+            x=x,
+            edge_index=torch.tensor([edge_src, edge_dst], dtype=torch.long),
+            edge_attr=torch.tensor(edge_type, dtype=torch.long),
+        )
+
+        if label:
+            data.mate_n = torch.tensor([label.get("mate_n") or 0], dtype=torch.long)
+            data.y = torch.tensor([label.get("best_move_idx", -1)], dtype=torch.long)
+
+        return data

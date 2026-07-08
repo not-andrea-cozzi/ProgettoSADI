@@ -1,146 +1,176 @@
 import io
-import json
-import random
+import os
+from Model.graph_builder import GraphBuilder
 import chess
+import chess.pgn
+import chess.engine
 import pandas as pd
-import zstandard as zstd
 import torch
-from torch_geometric.data import Data
-from Component.ChessAnalysisPipeline import ChessAnalysisPipeline, board_to_graph_json
+import zstandard as zstd
+from tqdm import tqdm
+from Component.ChessAnalysisPipeline import ChessAnalysisPipeline
+from Component.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 
 
-def read_zst_csv(path: str) -> pd.DataFrame:
+def decompress_zst_csv(zst_path: str, out_csv: str, chunk_size: int = 1024 * 1024) -> str:
+    """Decomprime un .csv.zst in un .csv su disco, con progress bar (basata sui byte
+    compressi letti, non sulla dimensione finale che zstd non conosce a priori)."""
+    if os.path.exists(out_csv):
+        print(f"{out_csv} gia' presente, salto decompressione.")
+        return out_csv
+    os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
+
+    total_size = os.path.getsize(zst_path)
     dctx = zstd.ZstdDecompressor()
-    with open(path, "rb") as f, dctx.stream_reader(f) as r:
-        text = io.TextIOWrapper(r, encoding="utf-8")
-        return pd.read_csv(text)
 
-
-def extract_puzzle_graphs(puzzle_csv_zst: str, out_csv: str, mate_range=(1, 5)):
-    df = read_zst_csv(puzzle_csv_zst)
-    lo, hi = mate_range
-    theme_map = {n: f"mateIn{n}" for n in range(lo, hi + 1)}
-    rows = []
-    for _, r in df.iterrows():
-        themes = str(r.get("Themes", ""))
-        mate_n = next((n for n in range(lo, hi + 1) if theme_map[n] in themes), None)
-        if mate_n is None:
-            continue
-        board = chess.Board(r["FEN"])
-        rows.append(
-            {
-                "Game_ID": r["PuzzleId"],
-                "SF_Mate": mate_n,
-                "Graph_JSON": board_to_graph_json(board),
-                "source": "puzzle",
-            }
-        )
-    pd.DataFrame(rows).to_csv(out_csv, index=False)
+    with open(zst_path, "rb") as f_in, open(out_csv, "wb") as f_out:
+        with tqdm(total=total_size, unit="B", unit_scale=True, desc=f"Decomprimo {os.path.basename(zst_path)}") as pbar:
+            reader = dctx.stream_reader(f_in)
+            while True:
+                chunk = reader.read(chunk_size)
+                if not chunk:
+                    break
+                f_out.write(chunk)
+                pbar.n = f_in.tell()
+                pbar.refresh()
     return out_csv
 
 
-def graph_json_to_pyg(graph_json_str: str, y: int) -> Data:
-    g = json.loads(graph_json_str)
-    node_ids = [n["id"] for n in g["nodes"]]
-    id_to_idx = {nid: i for i, nid in enumerate(node_ids)}
-    x = torch.tensor(
-        [[n["has_piece"], n["piece_type"], n["color"]] for n in g["nodes"]],
-        dtype=torch.float,
-    )
-    edge_type_map = {"legal_move": 0, "attack": 1, "pin": 2}
-    src, dst, etype = ([], [], [])
-    for e in g.get("links", g.get("edges", [])):
-        src.append(id_to_idx[e["source"]])
-        dst.append(id_to_idx[e["target"]])
-        etype.append(edge_type_map.get(e.get("edge_type"), 0))
-    edge_index = torch.tensor([src, dst], dtype=torch.long)
-    edge_attr = torch.tensor(etype, dtype=torch.long)
-    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=torch.tensor([y]))
+def build_puzzle_pt(csv_path: str, root: str, mate_range=(1, 5), max_puzzles=None):
+    """Genera i tre split puzzle (train/val/test) come liste di Data PyG,
+    usando PuzzleGraphDataset (che processa CSV -> Data direttamente, senza JSON).
+    NB: questi split sono per TRAIN/VAL interni, non per l'held-out finale."""
+    splits = {}
+    for split in ("train", "val", "test"):
+        ds = PuzzleGraphDataset(csv_path, root, split=split, mate_range=mate_range, max_puzzles=max_puzzles)
+        splits[split] = list(ds)
+    return splits
 
 
-def build_train_val(
-    games_csv: str,
-    puzzle_csv: str,
-    out_dir: str,
-    n_target_per_class: dict,
-    puzzle_ratio: float = 0.7,
-    val_frac: float = 0.1,
-    seed: int = 42,
-):
-    random.seed(seed)
-    games_df = pd.read_csv(games_csv)
-    puzzle_df = pd.read_csv(puzzle_csv)
-    train, val = ([], [])
-    for n, target in n_target_per_class.items():
-        n_puzzle = int(target * puzzle_ratio)
-        n_games = target - n_puzzle
-        pool_p = puzzle_df[puzzle_df["SF_Mate"].abs() == n]
-        pool_g = games_df[games_df["SF_Mate"].abs() == n]
-        pool_p = pool_p.sample(n=min(n_puzzle, len(pool_p)), random_state=seed)
-        pool_g = pool_g.sample(n=min(n_games, len(pool_g)), random_state=seed)
-        combined = pd.concat([pool_p, pool_g]).sample(frac=1, random_state=seed)
-        n_val = int(len(combined) * val_frac)
-        val_rows = combined.iloc[:n_val]
-        train_rows = combined.iloc[n_val:]
-        for split_list, rows in [(train, train_rows), (val, val_rows)]:
-            for _, r in rows.iterrows():
-                split_list.append(graph_json_to_pyg(r["Graph_JSON"], y=n))
-    random.shuffle(train)
-    torch.save(train, f"{out_dir}/train.pt")
-    torch.save(val, f"{out_dir}/val.pt")
-    print(f"train={len(train)} val={len(val)}")
-
-
-def build_holdout_testset(
+def build_external_holdout(
     external_csv: str,
-    out_dir: str,
-    n_range=(1, 10),
-    fen_col: str = "FEN",
-    mate_col: str = "MateIn",
+    stockfish_path: str,
+    out_pt: str,
+    mate_range=(1, 5),
+    time_limit: float = 0.2,
+    pgn_col: str = "pgn",
+    max_games=None,
+    max_problems=None,
 ):
+    """Held-out ESTERNO da dataset chess.com (60k games, colonna `pgn` con partita completa).
+    Non ha FEN/Moves/MateIn pronti: scandisce ogni partita mossa per mossa, usa Stockfish
+    per trovare posizioni di matto forzato in mate_range mosse (stessa logica di
+    ChessAnalysisPipeline, qui sequenziale dato il volume ridotto per l'eval finale).
+    MAI mischiato con games/puzzle Lichess usati in train/val (richiesta del prof)."""
     df = pd.read_csv(external_csv)
-    lo, hi = n_range
-    test = []
-    for _, r in df.iterrows():
-        n = int(r[mate_col])
-        if not lo <= n <= hi:
-            continue
-        board = chess.Board(r[fen_col])
-        test.append(graph_json_to_pyg(board_to_graph_json(board), y=n))
-    random.shuffle(test)
-    torch.save(test, f"{out_dir}/test.pt")
-    print(f"held-out test={len(test)}")
+    if max_games:
+        df = df.head(max_games)
+
+    lo, hi = mate_range
+    test_data = []
+
+    engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
+    engine.configure({"Threads": 1, "Hash": 64})
+
+    try:
+        for game_idx, pgn_text in enumerate(tqdm(df[pgn_col].dropna(), desc="Held-out chess.com")):
+            game = chess.pgn.read_game(io.StringIO(pgn_text))
+            if game is None:
+                continue
+
+            node = game
+            while node.variations:
+                nxt = node.variation(0)
+                board = node.board()
+
+                try:
+                    info = engine.analyse(board, chess.engine.Limit(time=time_limit, mate=hi), multipv=1)
+                except Exception:
+                    node = nxt
+                    continue
+
+                score = info[0].get("score") if info else None
+                if score and score.relative.is_mate():
+                    mate_n = score.relative.mate()
+                    if lo <= abs(mate_n) <= hi:
+                        legal = list(board.legal_moves)
+                        try:
+                            best_idx = legal.index(nxt.move)
+                        except ValueError:
+                            node = nxt
+                            continue
+
+                        label = {"mate_n": mate_n, "best_move_idx": best_idx}
+                        d = GraphBuilder.board_to_pyg_data(board, clock_seconds=0.0, label=label)
+                        d.problem_id = f"chesscom_{game_idx}_{node.ply()}"
+                        test_data.append(d)
+
+                node = nxt
+
+            if max_problems and len(test_data) >= max_problems:
+                break
+    finally:
+        engine.quit()
+
+    torch.save(test_data, out_pt)
+    print(f"held-out esterno: {len(test_data)} problemi -> {out_pt}")
+    return test_data
 
 
 if __name__ == "__main__":
-    N_TARGET = {1: 25000, 2: 25000, 3: 20000, 4: 15000, 5: 15000}
+    MATE_RANGE = (1, 5)
 
+    # Crea tutte le cartelle di output UNA VOLTA sola, prima di qualunque step lento,
+    # cosi' un path mancante non fa perdere ore di scansione (vedi bug torch.save).
+    os.makedirs("dataset", exist_ok=True)
+    os.makedirs("dataset/puzzles", exist_ok=True)
+    os.makedirs("dataset/merged", exist_ok=True)
 
-    GAMES_CSV_OUTPUT : str = "dataset/games_all_2019_06.csv"
-    pipeline = ChessAnalysisPipeline(
-            zst_path="rawData/lichess_db_standard_rated_2019-06.pgn.zst",
-            stockfish_path="/usr/games/stockfish",
-            output_csv="",
-            max_games=None,  
-        )
-    pipeline.run()
+    # 1. Games: .pgn.zst -> dataset/games.pt (via Stockfish, multiprocessing)
+    """
+    games_pipeline = ChessAnalysisPipeline(
+        zst_path="rawData/lichess_db_standard_rated_2019-06.pgn.zst",
+        stockfish_path="/usr/games/stockfish",
+        output_pt="dataset/games.pt",
+        mate_range=MATE_RANGE,
+        max_games=180_000,
+    )
+    games_pipeline.run()
+    """
     
-    
-    extract_puzzle_graphs("lichess_puzzles.csv", "dataset/puzzle_graphs.csv")
 
-    build_train_val(
-        games_csv=GAMES_CSV_OUTPUT,   
-        puzzle_csv="dataset/puzzle_graphs.csv",
-        out_dir="dataset",
-        n_target_per_class=N_TARGET,
-        puzzle_ratio=0.7,
+    # 2. Puzzle: rawData/lichess_puzzles.csv.zst -> decompresso -> dataset/puzzles/puzzle_{train,val,test}.pt
+    #    (qui "test" resta interno/Lichess, usato solo per sanity-check, NON è l'held-out del prof)
+    puzzle_csv = decompress_zst_csv(
+        zst_path="rawData/lichess_db_puzzle.csv.zst",
+        out_csv="dataset/lichess_puzzles.csv",
+    )
+    puzzle_splits = build_puzzle_pt(
+        csv_path=puzzle_csv,
+        root="dataset/puzzles",
+        mate_range=MATE_RANGE,
+        max_puzzles=100_000,
     )
 
-    # 3. test held-out da fonte ESTERNA (Kaggle/Chess.com)
-    # build_holdout_testset(
-    #     external_csv="kaggle_chess_puzzles.csv",
-    #     out_dir="dataset",
-    #     n_range=(1, 10),
-    #     fen_col="FEN",
-    #     mate_col="MateIn",
-    # )
+    # 3. Merge puzzle + games SOLO per train/val -> dataset/merged/merged_{train,val}.pt
+    #    Il "test" prodotto qui è Lichess-based e NON va usato come eval finale.
+    merge_and_split(
+        puzzle_pt_list=puzzle_splits["train"] + puzzle_splits["val"] + puzzle_splits["test"],
+        games_pt_path="dataset/games.pt",
+        out_dir="dataset/merged",
+    )
+
+    # 4. Held-out FINALE: fonte esterna (chess.com 60k games), MAI vista in training.
+    #    Questo e' il test set richiesto dal prof per la valutazione comparativa GNN vs LLM.
+    build_external_holdout(
+        external_csv="rawData/club_games_data.csv",
+        stockfish_path="/usr/games/stockfish",
+        out_pt="dataset/merged/external_holdout.pt",
+        mate_range=MATE_RANGE,
+        max_problems=1000,   
+    )
+
+    print("Train/val pronti in dataset/merged/merged_{train,val}.pt")
+    print("Held-out ESTERNO (eval finale) in dataset/merged/external_holdout.pt")
+    print("NB: per Component/Trainer.py usa merged_train.pt / merged_val.pt.")
+    print("Per la valutazione finale/comparativa GNN vs LLM usa external_holdout.pt, non merged_test.pt.")
