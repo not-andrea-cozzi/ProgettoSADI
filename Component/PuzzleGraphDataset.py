@@ -1,3 +1,4 @@
+import os
 import random
 from Model.graph_builder import GraphBuilder
 import chess
@@ -7,29 +8,34 @@ from tqdm import tqdm
 from torch_geometric.data import InMemoryDataset
 
 
-def merge_and_split(puzzle_pt_list, games_pt_path, out_dir, seed=42):
-    """Unisce Data list da puzzle (gia' processati) + partite (.pt da ChessAnalysisPipeline)
-    e risalva 3 file train/val/test.pt coerenti col resto della pipeline."""
-    import os
-    games_data = torch.load(games_pt_path, weights_only=False) if games_pt_path else []
-    all_data = list(puzzle_pt_list) + list(games_data)
-    random.Random(seed).shuffle(all_data)
+def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str):
+    """Unisce, PER-SPLIT, i Data list gia' splittati a monte (per puzzle_id/game_id)
+    da PuzzleGraphDataset e ChessAnalysisPipeline. NON ri-shuffla e NON ri-splitta:
+    farlo introdurrebbe leakage perche' mosse dello stesso puzzle/game finirebbero
+    in split diversi. L'unico shuffle qui e' interno al singolo split (ordine dei
+    batch), mai tra split.
 
-    n = len(all_data)
-    i_train, i_val = int(n * 0.8), int(n * 0.9)
-    splits = {
-        "train": all_data[:i_train],
-        "val": all_data[i_train:i_val],
-        "test": all_data[i_val:],
-    }
+    puzzle_splits / games_splits: dict con chiavi "train","val","test" -> list[Data]
+    """
     os.makedirs(out_dir, exist_ok=True)
-    for name, dlist in splits.items():
-        torch.save(dlist, f"{out_dir}/merged_{name}.pt")
-    return splits
+    result = {}
+    for name in ("train", "val", "test"):
+        merged = list(puzzle_splits.get(name, [])) + list(games_splits.get(name, []))
+        random.Random(42 + hash(name) % 1000).shuffle(merged)  # shuffle intra-split, non cross-split
+        result[name] = merged
+        torch.save(merged, os.path.join(out_dir, f"merged_{name}.pt"))
+    return result
 
 
 class PuzzleGraphDataset(InMemoryDataset):
     """Costruisce dataset PyG da lichess_db_puzzle.csv filtrato per mateIn1-5.
+
+    FIX split-leakage: lo split train/val/test avviene sui PuzzleId (una riga CSV =
+    un puzzle = una sequenza di mosse), PRIMA di espandere ogni puzzle nelle sue
+    posizioni-mossa. In precedenza lo split veniva fatto dopo l'espansione a livello
+    di singola posizione/mossa in merge_and_split, cosi' mosse dello stesso puzzle
+    potevano finire sia in train che in val/test (data leakage: il modello vede
+    posizioni della stessa linea tattica sia in training che in validazione).
 
     Il CSV Lichess ha ~6M righe: legge a CHUNK e si ferma non appena ha raccolto
     max_puzzles righe valide (che matchano il tema), invece di caricare tutto il file."""
@@ -52,13 +58,16 @@ class PuzzleGraphDataset(InMemoryDataset):
 
     def _load_filtered_rows(self) -> list[dict]:
         """Legge il CSV a chunk, tiene solo righe con tema mateIn{lo..hi}, si ferma
-        appena raggiunge max_puzzles righe valide (se specificato)."""
+        appena raggiunge max_puzzles righe valide (se specificato).
+
+        NB: il filtro qui avviene su TUTTO il pool di puzzle (non ancora splittato).
+        Lo split train/val/test per PuzzleId avviene subito dopo, in process()."""
         lo, hi = self.mate_range
         theme_pattern = "|".join(f"mateIn{n}" for n in range(lo, hi + 1))
 
         rows = []
         reader = pd.read_csv(self.csv_path, chunksize=self.chunksize)
-        pbar = tqdm(desc=f"Lettura CSV puzzle [{self.split}]", unit=" righe valide")
+        pbar = tqdm(desc=f"Lettura CSV puzzle [pool completo]", unit=" righe valide")
         for chunk in reader:
             mask = chunk["Themes"].str.contains(theme_pattern, na=False)
             filtered = chunk[mask]
@@ -71,17 +80,24 @@ class PuzzleGraphDataset(InMemoryDataset):
         pbar.close()
         return rows
 
-    def process(self):
-        rows = self._load_filtered_rows()
-
-        random.Random(self.seed).shuffle(rows)
-        n = len(rows)
+    def _rows_for_split(self, rows: list[dict]) -> list[dict]:
+        """Split 80/10/10 sui PuzzleId (a livello di riga CSV = puzzle intero),
+        con lo stesso seed per garantire che train/val/test chiamati separatamente
+        (split="train", poi split="val", ecc.) producano partizioni disgiunte e
+        deterministiche sullo STESSO pool di rows."""
+        rows_sorted = sorted(rows, key=lambda r: r["PuzzleId"])  # ordine deterministico pre-shuffle
+        random.Random(self.seed).shuffle(rows_sorted)
+        n = len(rows_sorted)
         i_train, i_val = int(n * 0.8), int(n * 0.9)
-        split_rows = {
-            "train": rows[:i_train],
-            "val": rows[i_train:i_val],
-            "test": rows[i_val:],
+        return {
+            "train": rows_sorted[:i_train],
+            "val": rows_sorted[i_train:i_val],
+            "test": rows_sorted[i_val:],
         }[self.split]
+
+    def process(self):
+        all_rows = self._load_filtered_rows()
+        split_rows = self._rows_for_split(all_rows)
 
         data_list = []
         for row in tqdm(split_rows, desc=f"Costruzione grafi puzzle [{self.split}]"):
@@ -91,6 +107,8 @@ class PuzzleGraphDataset(InMemoryDataset):
             clock = self._simulated_clock(row["Rating"])
 
             # una posizione-grafo per ogni mossa della soluzione (posizione -> mossa corretta)
+            # tutte le mosse di QUESTO puzzle restano nello split assegnato sopra: nessuna
+            # mossa dello stesso PuzzleId puo' finire in uno split diverso.
             for ply_idx, uci in enumerate(uci_moves):
                 move = chess.Move.from_uci(uci)
                 legal = list(board.legal_moves)

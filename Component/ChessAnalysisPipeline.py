@@ -1,5 +1,6 @@
 import io
 import os
+import random
 import multiprocessing as mp
 from Model.graph_builder import GraphBuilder
 import chess
@@ -8,17 +9,26 @@ import chess.engine
 import zstandard as zstd
 import torch
 from tqdm import tqdm
+import torch.multiprocessing as torch_mp
+torch_mp.set_sharing_strategy('file_system')
+
 
 _engine = None
 
 
 class ChessAnalysisPipeline:
     """Estrae posizioni di matto (mate in 1-5) da partite Lichess (.pgn.zst)
-    e produce Data PyG salvati in .pt, unificabile con PuzzleGraphDataset."""
+    e produce Data PyG salvati in .pt, unificabile con PuzzleGraphDataset.
+
+    FIX split-leakage: lo split train/val/test avviene sui game_id (una partita
+    intera), non sulle singole posizioni-mossa estratte. Tutte le posizioni di
+    matto trovate nella stessa partita finiscono nello stesso split. run() produce
+    3 file separati (output_pt_train / _val / _test) pronti per merge_and_split,
+    che a quel punto NON deve piu' ri-splittare nulla."""
 
     def __init__(self, zst_path, stockfish_path, output_pt,
                  mate_range=(1, 5), time_limit=0.2, multipv=3,
-                 workers=None, max_games=None):
+                 workers=None, max_games=None, seed=42):
         self.zst_path = zst_path
         self.stockfish_path = stockfish_path
         self.output_pt = output_pt
@@ -27,6 +37,7 @@ class ChessAnalysisPipeline:
         self.multipv = multipv
         self.workers = 5
         self.max_games = max_games
+        self.seed = seed
 
     @staticmethod
     def _init_worker(stockfish_path):
@@ -38,7 +49,7 @@ class ChessAnalysisPipeline:
         game_id, pgn_text = args
         game = chess.pgn.read_game(io.StringIO(pgn_text))
         if game is None:
-            return []
+            return game_id, []
 
         data_list = []
         node = game
@@ -60,7 +71,7 @@ class ChessAnalysisPipeline:
 
             if info and info[0].get("score") and info[0]["score"].relative.is_mate():
                 mate_n = info[0]["score"].relative.mate()
-                if lo <= abs(mate_n) <= hi:
+                if mate_n > 0 and lo <= mate_n <= hi:
                     legal = list(board.legal_moves)
                     try:
                         best_idx = legal.index(nxt.move)
@@ -76,7 +87,7 @@ class ChessAnalysisPipeline:
 
             node = nxt
 
-        return data_list
+        return game_id, data_list
 
     @staticmethod
     def _extract_clock(comment: str) -> float | None:
@@ -107,6 +118,17 @@ class ChessAnalysisPipeline:
                 gid += 1
                 yield gid, str(g)
 
+    def _assign_game_split(self, game_id: int) -> str:
+        """Split deterministico per game_id (80/10/10), indipendente dall'ordine
+        di arrivo dai worker paralleli: stesso game_id -> sempre stesso split."""
+        rng = random.Random(self.seed + game_id)
+        r = rng.random()
+        if r < 0.8:
+            return "train"
+        elif r < 0.9:
+            return "val"
+        return "test"
+
     def run(self):
         # Verifica ANCHE prima di iniziare la scansione (che puo' richiedere decine di minuti),
         # cosi' l'errore per path mancante esce subito e non dopo aver buttato via il lavoro.
@@ -114,15 +136,25 @@ class ChessAnalysisPipeline:
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
 
-        all_data = []
+        split_data = {"train": [], "val": [], "test": []}
         with mp.Pool(self.workers, initializer=self._init_worker, initargs=(self.stockfish_path,)) as pool:
             gen = self._stream_pgn_texts()
-            for data_list in tqdm(pool.imap(self._worker, gen, chunksize=20),
-                                   desc="Scansione", total=self.max_games):
-                all_data.extend(data_list)
+            for game_id, data_list in tqdm(pool.imap(self._worker, gen, chunksize=20),
+                                            desc="Scansione", total=self.max_games):
+                if not data_list:
+                    continue
+                split_name = self._assign_game_split(game_id)
+                split_data[split_name].extend(data_list)
 
         # Doppio check: se la cartella e' stata rimossa nel frattempo, non perdere comunque il lavoro.
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        torch.save(all_data, self.output_pt)
-        return all_data
+
+        base, ext = os.path.splitext(self.output_pt)
+        paths = {}
+        for name, dlist in split_data.items():
+            path = f"{base}_{name}{ext}"
+            torch.save(dlist, path)
+            paths[name] = path
+
+        return split_data, paths
