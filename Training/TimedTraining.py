@@ -3,6 +3,7 @@ import sys
 import logging
 import torch
 from torch.utils.data import DataLoader
+from timegnn.train.early_stopping import EarlyStopping
 
 from Component.PuzzleGraphDataset import PuzzleGraphDataset
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
@@ -96,7 +97,7 @@ def _checkpoint_path(tag: str, kind: str) -> str:
     return os.path.join(CHECKPOINT_DIR, f"{tag}_{kind}.pt")
 
 
-def save_checkpoint(path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc):
+def save_checkpoint(path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc, early_stopper):
     tmp_path = path + ".tmp"
     torch.save({
         "epoch": epoch,
@@ -104,16 +105,20 @@ def save_checkpoint(path, model, optimizer, epoch, best_val_move_acc, best_val_m
         "optimizer_state": optimizer.state_dict(),
         "best_val_move_acc": best_val_move_acc,
         "best_val_mate_acc": best_val_mate_acc,
+        "es_counter": early_stopper.counter,
+        "es_best_loss": early_stopper.best_loss,
     }, tmp_path)
     os.replace(tmp_path, path)
 
 
-def load_checkpoint_if_exists(path, model, optimizer, device):
+def load_checkpoint_if_exists(path, model, optimizer, device, early_stopper):
     if not os.path.exists(path):
         return 0, 0.0, 0.0
     ckpt = torch.load(path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state"])
     optimizer.load_state_dict(ckpt["optimizer_state"])
+    early_stopper.counter = ckpt.get("es_counter", 0)
+    early_stopper.best_loss = ckpt.get("es_best_loss", float("inf"))
     return ckpt["epoch"], ckpt["best_val_move_acc"], ckpt["best_val_mate_acc"]
 
 
@@ -122,12 +127,13 @@ def train_one_config(use_time: bool, train_loader, val_loader, device):
     model = TimedPolicyGNN(hidden_dim=HIDDEN_DIM, num_layers=NUM_LAYERS,
                             lambda_decay=LAMBDA_DECAY, use_time=use_time).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    early_stopper = EarlyStopping(patience=7, delta=0.0)
 
     latest_path = _checkpoint_path(tag, "latest")
     best_path = _checkpoint_path(tag, "best")
 
     start_epoch, best_val_move_acc, best_val_mate_acc = load_checkpoint_if_exists(
-        latest_path, model, optimizer, device)
+        latest_path, model, optimizer, device, early_stopper)
 
     if start_epoch >= EPOCHS:
         logger.info(f"[{tag}] gia' completato ({start_epoch}/{EPOCHS} epoche), salto.")
@@ -146,11 +152,17 @@ def train_one_config(use_time: bool, train_loader, val_loader, device):
         if val_move_acc > best_val_move_acc:
             best_val_move_acc = val_move_acc
             best_val_mate_acc = val_mate_acc
-            save_checkpoint(best_path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc)
+            save_checkpoint(best_path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc, early_stopper)
 
         # salvato SEMPRE (anche se non e' il migliore): e' questo che permette
         # di riprendere dall'ultima epoca completata invece che da zero.
-        save_checkpoint(latest_path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc)
+        save_checkpoint(latest_path, model, optimizer, epoch, best_val_move_acc, best_val_mate_acc, early_stopper)
+
+        if early_stopper(val_loss):
+            logger.info(f"[{tag}] early stop a epoca {epoch} "
+                        f"(val_loss non migliora da {early_stopper.patience} epoche, "
+                        f"best_val_loss={early_stopper.best_loss:.4f})")
+            break
 
     return best_val_move_acc, best_val_mate_acc
 
