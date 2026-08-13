@@ -4,3 +4,5 @@ torch
 torch-geometric
 pandas
 tqdm
+scikit-learn
+seaborn
