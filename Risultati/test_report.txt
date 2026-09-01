@@ -1,8 +1,0 @@
-=== Test set — TimedPolicyGNN vs baseline ===
-
-N posizioni valutate: 33306
-
-metric             timed     untimed       delta
-loss              1.4167      1.5521     -0.1354
-move_acc          0.6592      0.6462     +0.0130
-mate_acc          0.6355      0.5541     +0.0814

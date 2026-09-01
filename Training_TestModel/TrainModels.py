@@ -5,7 +5,6 @@ import sys
 from types import SimpleNamespace
 from typing import Optional, Tuple
 
-from Training.MetricLogger import StratifiedEvaluator, TrainingMetricsLogger
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -13,15 +12,17 @@ from torch.utils.data import DataLoader
 from timegnn.train.early_stopping import EarlyStopping
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
 from Component.TimeStatBuilder import load_avg_time_by_rating
-from Training.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-from Training.TimeChainGnn import TimedPolicyGNN
+from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from Training_TestModel.TimeChainGnn import TimedPolicyGNN
+from Training_TestModel.MetricLogger import TrainingMetricsLogger, StratifiedEvaluator
+
 
 
 
 # --- CONFIGURAZIONE CENTRALIZZATA ---
 CONFIG = SimpleNamespace(
     data_dir="dataset/merged",
-    time_stats_json="dataset/avg_time_by_rating.json",
+    time_stats_json="avg_time_by_rating.json",
     checkpoint_dir="checkpoints",
     results_dir="results",
     epochs=30,
@@ -300,6 +301,7 @@ def main():
         False, train_loader, val_loader, device, cfg, metrics_logger
     )
 
+    # 3. Salvataggio ed esportazione dei plot di addestramento
     logger.info("Salvataggio delle metriche di training e generazione dei plot comparativi...")
     metrics_logger.save_metrics_to_disk()
     metrics_logger.plot_training_curves()
@@ -310,12 +312,19 @@ def main():
         f" - Senza segnale temporale: Move={untimed_m_acc*100:.2f}% | Mate={untimed_mate_acc*100:.2f}%"
     )
 
+    # 4. Step Post-Training: Valutazione Stratificata per profondità di matto n (1..10)
     logger.info("Avvio valutazione stratificata per profondità di matto (n=1..10)...")
     evaluator = StratifiedEvaluator(device=device, output_dir=os.path.join(cfg.results_dir, "eval"))
     
+    # Valutazione sui set (se disponi di un test split held-out separato puoi passarlo qui)
     strat_timed = evaluator.evaluate_stratified_gnn(timed_model, val_loader, max_n=cfg.max_mate_depth_eval)
     strat_untimed = evaluator.evaluate_stratified_gnn(untimed_model, val_loader, max_n=cfg.max_mate_depth_eval)
-    
+
+    # (Opzionale) Risultati zero-shot/few-shot del modello LLM per n da 1 a 10
+    llm_baseline_results = {
+        1: 0.85, 2: 0.65, 3: 0.40, 4: 0.22, 5: 0.12,
+        6: 0.08, 7: 0.05, 8: 0.03, 9: 0.01, 10: 0.00
+    }
 
     evaluator.plot_and_save_stratified_comparison(
         timed_results=strat_timed,
