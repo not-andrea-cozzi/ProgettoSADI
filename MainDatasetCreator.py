@@ -16,8 +16,8 @@ from tqdm import tqdm
 import yaml
 
 from DatasetCreator.GraphBuilder import GraphBuilder
-from ChessAnalysisPipeline import ChessAnalysisPipeline
-from PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
+from DatasetCreator.ChessAnalysisPipeline import ChessAnalysisPipeline
+from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 

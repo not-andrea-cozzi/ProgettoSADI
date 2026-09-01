@@ -7,8 +7,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from Training.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-from Training.TrainModels import _argmax_per_graph
+from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from TrainModels import _argmax_per_graph
 
 
 class TrainingMetricsLogger:

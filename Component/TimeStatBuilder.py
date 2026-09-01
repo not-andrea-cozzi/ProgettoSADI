@@ -2,46 +2,55 @@ import io
 import re
 import json
 from collections import defaultdict
+from typing import Optional, Dict, Generator
 
 import chess.pgn
 import zstandard as zstd
 
 
 class TimeStatsBuilder:
-    """Calcola avg_time_by_rating leggendo i %clk reali dai game Lichess (.pgn.zst),
-    per popolare la simulazione dei tempi puzzle richiesta dalla spec:
-    'augment with ... average times from similar Lichess games'.
-
-    Nota: %clk e' il tempo RIMASTO sull'orologio, non il tempo speso sulla mossa.
-    Il tempo speso si ricava come:
-        speso[i] = clock[i-1] - clock[i] + increment
-    confrontando mosse consecutive dello STESSO colore (bianco con bianco, nero con nero).
+    """
+    Calcola il tempo medio di riflessione per mossa bucketizzato per rating,
+    estratto dai commenti %clk nei file PGN Lichess (.zst).
     """
 
-    CLK_RE = re.compile(r'\[%clk (\d+):(\d+):(\d+)\]')
+    CLK_RE = re.compile(r'\[%clk (\d+):(\d+):(\d+(?:\.\d+)?)\]')
 
-    def __init__(self, zst_path: str, max_games: int = 20_000, bucket_size: int = 100):
+    def __init__(
+        self,
+        zst_path: str,
+        max_games: int = 50_000,
+        bucket_size: int = 100,
+        min_base_time: int = 180,
+        max_spent_threshold: float = 300.0,
+    ):
         self.zst_path = zst_path
         self.max_games = max_games
         self.bucket_size = bucket_size
+        self.min_base_time = min_base_time
+        self.max_spent_threshold = max_spent_threshold
 
-    @staticmethod
-    def _parse_clock(comment: str) -> float | None:
-        m = TimeStatsBuilder.CLK_RE.search(comment or "")
+    @classmethod
+    def _parse_clock(cls, comment: str) -> Optional[float]:
+        m = cls.CLK_RE.search(comment or "")
         if not m:
             return None
-        h, mi, s = map(int, m.groups())
-        return float(h * 3600 + mi * 60 + s)
+        h, mi, s = m.groups()
+        return int(h) * 3600 + int(mi) * 60 + float(s)
 
     @staticmethod
-    def _parse_increment(time_control: str) -> float:
-        # TimeControl es. "300+0" -> base=300, incr=0. "-" (correspondence) -> 0.
+    def _parse_time_control(time_control: str) -> tuple[float, float]:
         if not time_control or time_control == "-":
-            return 0.0
-        m = re.match(r'(\d+)\+(\d+)', time_control)
-        return float(m.group(2)) if m else 0.0
+            return 0.0, 0.0
+        m = re.match(r'^(\d+)\+(\d+)$', time_control)
+        if m:
+            return float(m.group(1)), float(m.group(2))
+        m_base = re.match(r'^(\d+)$', time_control)
+        if m_base:
+            return float(m_base.group(1)), 0.0
+        return 0.0, 0.0
 
-    def _stream_games(self):
+    def _stream_games(self) -> Generator[chess.pgn.Game, None, None]:
         dctx = zstd.ZstdDecompressor()
         with open(self.zst_path, "rb") as f, dctx.stream_reader(f) as r:
             text = io.TextIOWrapper(r, encoding="utf-8")
@@ -55,59 +64,67 @@ class TimeStatsBuilder:
                 n += 1
                 yield g
 
-    def build(self) -> dict[int, float]:
-        """Ritorna {rating_bucket: avg_seconds_spent_per_move}."""
-        bucket_sum = defaultdict(float)
-        bucket_count = defaultdict(int)
+    def build(self) -> Dict[int, float]:
+        bucket_sum: Dict[int, float] = defaultdict(float)
+        bucket_count: Dict[int, int] = defaultdict(int)
 
         for game in self._stream_games():
             headers = game.headers
-            increment = self._parse_increment(headers.get("TimeControl", ""))
+            base_time, increment = self._parse_time_control(headers.get("TimeControl", ""))
+            
+            if base_time < self.min_base_time:
+                continue
+
             try:
                 white_elo = int(headers.get("WhiteElo", 0))
                 black_elo = int(headers.get("BlackElo", 0))
             except ValueError:
                 continue
-            if not white_elo or not black_elo:
+
+            if white_elo <= 0 or black_elo <= 0:
                 continue
 
-            # clock precedente per colore (None finche' non abbiamo un secondo campione)
-            prev_clock = {chess.WHITE: None, chess.BLACK: None}
+            prev_clock = {
+                chess.WHITE: base_time,
+                chess.BLACK: base_time
+            }
 
             node = game
             while node.variations:
                 nxt = node.variation(0)
-                mover_color = node.board().turn  # chi sta per muovere in `nxt`
+                mover_color = node.board().turn
                 clk = self._parse_clock(nxt.comment)
 
                 if clk is not None:
                     prev = prev_clock[mover_color]
-                    if prev is not None:
-                        spent = prev - clk + increment
-                        if spent > 0:  # scarta valori negativi/rumore
-                            rating = white_elo if mover_color == chess.WHITE else black_elo
-                            bucket = round(rating / self.bucket_size) * self.bucket_size
-                            bucket_sum[bucket] += spent
-                            bucket_count[bucket] += 1
+                    spent = prev - clk + increment
+                    
+                    spent = max(0.0, spent)
+                    if spent <= self.max_spent_threshold:
+                        rating = white_elo if mover_color == chess.WHITE else black_elo
+                        bucket = round(rating / self.bucket_size) * self.bucket_size
+                        bucket_sum[bucket] += spent
+                        bucket_count[bucket] += 1
+                        
                     prev_clock[mover_color] = clk
 
                 node = nxt
 
         return {
-            bucket: round(bucket_sum[bucket] / bucket_count[bucket], 2)
-            for bucket in bucket_sum
-            if bucket_count[bucket] >= 20  # bucket con troppo pochi campioni -> scartato
+            bucket: round(bucket_sum[bucket] / bucket_count[bucket], 3)
+            for bucket in sorted(bucket_sum.keys())
+            if bucket_count[bucket] >= 30
         }
 
-    def build_and_save(self, out_json: str) -> dict[int, float]:
+    def build_and_save(self, out_json: str) -> Dict[int, float]:
         stats = self.build()
-        with open(out_json, "w") as f:
+        with open(out_json, "w", encoding="utf-8") as f:
             json.dump(stats, f, indent=2, sort_keys=True)
         return stats
 
 
-def load_avg_time_by_rating(json_path: str) -> dict[int, float]:
-    """Carica il json prodotto da build_and_save, con chiavi int (json le salva come str)."""
-    with open(json_path) as f:
+def load_avg_time_by_rating(json_path: str) -> Dict[int, float]:
+    """Carica il JSON prodotto da build_and_save, convertendo le chiavi in interi."""
+    with open(json_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    return {int(k): v for k, v in raw.items()}
+    return {int(k): float(v) for k, v in raw.items()}

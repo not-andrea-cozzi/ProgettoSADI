@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from timegnn.train.early_stopping import EarlyStopping
+from Training_TestModel.timegnn.train.early_stopping import EarlyStopping
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
 from Component.TimeStatBuilder import load_avg_time_by_rating
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index

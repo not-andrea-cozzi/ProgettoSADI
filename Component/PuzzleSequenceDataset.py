@@ -1,15 +1,16 @@
 import math
-
 import torch
 from torch.utils.data import Dataset
 from torch_geometric.data import Batch
 
-CLOCK_CAP_SECONDS = 600.0  # deve combaciare con GraphBuilder.CLOCK_CAP_SECONDS
+CLOCK_CAP_SECONDS = 600.0
 
 
 def _clock_seconds_from_norm(clock_norm: float) -> float:
     denom = math.log1p(CLOCK_CAP_SECONDS)
-    return math.expm1(clock_norm * denom)
+    if denom <= 0:
+        return 0.0
+    return max(0.0, math.expm1(clock_norm * denom))
 
 
 def group_puzzle_sequences(puzzle_data_list):
@@ -17,12 +18,15 @@ def group_puzzle_sequences(puzzle_data_list):
     for d in puzzle_data_list:
         pid = getattr(d, "puzzle_id", None)
         if pid is None:
-            continue  # non e' una posizione-puzzle (es. proviene da games.pt)
+            continue
         by_puzzle.setdefault(pid, []).append(d)
 
     sequences = []
     for plies in by_puzzle.values():
-        plies_sorted = sorted(plies, key=lambda d: d.x[0, 3].item())
+        plies_sorted = sorted(
+            plies, 
+            key=lambda d: getattr(d, "ply", getattr(d, "move_idx", 0))
+        )
         sequences.append(plies_sorted)
     return sequences
 
@@ -48,11 +52,16 @@ def timed_collate_fn(batch_of_sequences):
         for i, d in enumerate(sequence):
             flat_positions.append(d)
             if i > 0:
-                t_prev = _clock_seconds_from_norm(sequence[i - 1].x[0, 3].item())
-                t_curr = _clock_seconds_from_norm(d.x[0, 3].item())
+                # Se presente, usa il valore scalare non compresso; altrimenti inverte la normalizzazione
+                if hasattr(d, "clock_seconds") and d.clock_seconds is not None:
+                    dt = float(d.clock_seconds)
+                else:
+                    dt = _clock_seconds_from_norm(d.x[0, 3].item())
+
                 chain_src.append(running_idx + i - 1)
                 chain_dst.append(running_idx + i)
-                chain_dt.append(max(t_curr - t_prev, 0.0))  # difesa: mai negativo
+                chain_dt.append(max(0.0, dt))
+
         running_idx += len(sequence)
 
     inner_batch = Batch.from_data_list(flat_positions)
