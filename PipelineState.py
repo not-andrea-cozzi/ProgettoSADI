@@ -30,7 +30,7 @@ class PipelineState:
         tmp_path = self.path + ".tmp"
         with open(tmp_path, "w") as f:
             json.dump(self._data, f, indent=2, sort_keys=True)
-        os.replace(tmp_path, self.path)  # write atomica: mai uno stato a meta' scritto
+        os.replace(tmp_path, self.path) 
 
     def is_done(self, step: str) -> bool:
         return self._data.get(step, {}).get("done", False)
