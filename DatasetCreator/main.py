@@ -12,11 +12,11 @@ import torch
 import zstandard as zstd
 from tqdm import tqdm
 
-from Model.graph_builder import GraphBuilder
-from Component.ChessAnalysisPipeline import ChessAnalysisPipeline
-from Component.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
+from DatasetCreator.GraphBuilder import GraphBuilder
+from ChessAnalysisPipeline import ChessAnalysisPipeline
+from PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
-from PipelineState import PipelineState, retry, file_ready, torch_pt_ready
+from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,10 +49,8 @@ def require_executable(path: str, hint: str = ""):
 
 @retry(max_attempts=3, base_delay=3.0, exceptions=(OSError, zstd.ZstdError))
 def decompress_zst_csv(zst_path: str, out_csv: str, chunk_size: int = 1024 * 1024) -> str:
-    """Decomprime un .csv.zst in un .csv su disco, con progress bar (basata sui byte
-    compressi letti, non sulla dimensione finale che zstd non conosce a priori).
-    Scrive su file temporaneo e fa os.replace finale: se il processo muore a meta',
-    non rimane un .csv troncato che verrebbe scambiato per "gia' pronto" al resume."""
+    """Decomprime un .csv.zst in un .csv su disco, con progress bar.
+    Scrive su file temporaneo e fa os.replace finale per evitare file corrotti."""
     require_file(zst_path, "Controlla il path dei dati grezzi (rawData/).")
 
     if file_ready(out_csv):
@@ -87,17 +85,7 @@ def decompress_zst_csv(zst_path: str, out_csv: str, chunk_size: int = 1024 * 102
 
 def build_puzzle_pt(csv_path: str, root: str, mate_range=(1, 5), max_puzzles=None,
                      avg_time_by_rating=None):
-    """Genera i tre split puzzle (train/val/test) come liste di Data PyG.
-    Lo split e' fatto per PuzzleId DENTRO PuzzleGraphDataset: ogni split="train"/
-    "val"/"test" processa lo STESSO pool di righe CSV filtrate e ne prende una
-    partizione disgiunta e deterministica (stesso seed), quindi le tre chiamate
-    qui sotto non si sovrappongono mai.
-
-    PuzzleGraphDataset e' un InMemoryDataset: se processed_paths[0] esiste gia' sul
-    disco, PyG stesso salta process() internamente. Questo e' gia' un resume "gratuito"
-    per split; qui aggiungiamo solo la validazione esplicita del file (torch_pt_ready)
-    cosi' un file .pt troncato da un crash precedente viene rigenerato invece di far
-    esplodere torch.load piu' avanti nel training."""
+    """Genera i tre split puzzle (train/val/test) come liste di Data PyG."""
     splits = {}
     for split in ("train", "val", "test"):
         expected_path = os.path.join(root, "processed", f"puzzle_{split}.pt")
@@ -131,33 +119,7 @@ def build_external_holdout(
     require_move_match: bool = True,
     checkpoint_every: int = 200,
 ):
-    """Held-out ESTERNO da dataset chess.com (60k games, colonna `pgn` con partita completa).
-    Non ha FEN/Moves/MateIn pronti: scandisce ogni partita mossa per mossa, usa Stockfish
-    per trovare posizioni di matto forzato in mate_range mosse (stessa logica di
-    ChessAnalysisPipeline, qui sequenziale dato il volume ridotto per l'eval finale).
-    MAI mischiato con games/puzzle Lichess usati in train/val.
-
-    mate_range default ora (1, 10): la spec chiede esplicitamente "n ranging from 1 to
-    10 (to test depth limits)" per l'held-out finale, a differenza del training
-    (mate_range (1,5) per games/puzzle) dove n>5 e' raro e non richiesto.
-    NB: mate=10 in chess.engine.Limit fa cercare Stockfish molto piu' a fondo di
-    mate=5 => scansione piu' lenta per posizione. time_limit resta un tetto per
-    mossa, non una garanzia di trovare matti profondi: con time_limit molto basso
-    e mate_range esteso a 10, alcuni mate-in-8/9/10 potrebbero non essere trovati
-    in tempo e la posizione verra' semplicemente scartata (comportamento gia'
-    presente prima, solo piu' frequente ora che il range e' piu' ampio).
-
-    require_move_match: se True, una posizione entra nell'held-out solo se la mossa
-    EFFETTIVAMENTE GIOCATA coincide con la prima mossa del matto forzato trovato da
-    Stockfish. Altrimenti la label userebbe la mossa storica anche quando il
-    giocatore non ha eseguito il matto individuato, producendo esempi mal etichettati.
-
-    Robustezza aggiunta:
-    - salvataggio incrementale ogni `checkpoint_every` problemi trovati (torch.save
-      atomico su file temporaneo + os.replace), cosi' un crash a meta' scansione
-      (es. Stockfish che muore) non fa perdere ore di lavoro gia' fatto;
-    - se il motore Stockfish crasha durante la scansione, viene riavviato (con retry)
-      e la scansione riprende dalla partita successiva invece di abortire l'intero step."""
+    """Held-out ESTERNO da dataset chess.com (range n da 1 a 10 per testare i limiti di profondita')."""
     require_file(external_csv, "Controlla il path del dataset esterno chess.com (rawData/).")
     require_executable(stockfish_path, "Verifica installazione/path di Stockfish.")
 
@@ -177,7 +139,7 @@ def build_external_holdout(
     def _checkpoint_save():
         os.makedirs(os.path.dirname(out_pt) or ".", exist_ok=True)
         torch.save(test_data, tmp_out)
-        os.replace(tmp_out, out_pt)  # atomico: out_pt e' sempre valido o non esiste
+        os.replace(tmp_out, out_pt)
 
     engine = _open_engine(stockfish_path)
 
@@ -215,9 +177,12 @@ def build_external_holdout(
                 score = info[0].get("score") if info else None
                 if score and score.relative.is_mate():
                     mate_n = score.relative.mate()
-                    if lo <= abs(mate_n) <= hi:
+                    if mate_n > 0 and lo <= mate_n <= hi:
                         pv = info[0].get("pv")
                         engine_best_move = pv[0] if pv else None
+                        if not engine_best_move:
+                            node = nxt
+                            continue
 
                         if require_move_match and nxt.move != engine_best_move:
                             skipped_no_match += 1
@@ -226,7 +191,7 @@ def build_external_holdout(
 
                         legal = list(board.legal_moves)
                         try:
-                            best_idx = legal.index(nxt.move)
+                            best_idx = legal.index(engine_best_move)
                         except ValueError:
                             node = nxt
                             continue
@@ -258,12 +223,7 @@ def build_external_holdout(
 
 
 def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
-    """Wrapper unico di resume per ogni step del main:
-    1. se lo state dice 'done' E i file di output superano il check di validita' -> skip
-    2. altrimenti esegue do_fn(), e in caso di eccezione marca 'failed' con l'errore
-       (senza mascherarlo: lo step fallito interrompe comunque main() con traceback,
-       ma lo stato resta consultabile per il prossimo run)
-    3. in caso di successo marca 'done'."""
+    """Wrapper unico di resume per ogni step del main."""
     if state.is_done(step_name) and is_ready_fn():
         logger.info(f"[SKIP] '{step_name}' gia' completato e file validi, non rieseguo.")
         return
@@ -323,10 +283,9 @@ def main():
     games_output_base = os.path.join(dataset_dir, "games.pt")
     holdout_path = os.path.join(merged_dir, "external_holdout.pt")
 
-    
     ctx = {}
 
-    # --- Step 1: statistiche tempo medio per rating (da games reali) ---
+    # Step 1: statistiche tempo medio per rating
     def _step_time_stats():
         require_file(games_zst_path, "Servono i game .pgn.zst reali per calcolare i tempi medi.")
         builder = TimeStatsBuilder(
@@ -346,7 +305,7 @@ def main():
         ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
     logger.info(f"avg_time_by_rating: {len(ctx['avg_time_by_rating'])} bucket -> {time_stats_path}")
 
-    # --- Step 2: games Lichess -> posizioni di matto (train/val/test) ---
+    # Step 2: games Lichess -> posizioni di matto (train/val/test) con mate_range da 1 a 5
     games_paths = {
         "train": f"{os.path.splitext(games_output_base)[0]}_train.pt",
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
@@ -360,7 +319,7 @@ def main():
             zst_path=games_zst_path,
             stockfish_path=STOCKFISH_PATH,
             output_pt=games_output_base,
-            mate_range=tuple(MATE_RANGE_HOLDOUT),
+            mate_range=tuple(MATE_RANGE_TRAIN),
             max_games=MAX_GAMES_PIPELINE,
         )
         splits, paths = pipeline.run()
@@ -377,7 +336,7 @@ def main():
     for name, dlist in ctx["games_splits"].items():
         logger.info(f"Games split '{name}': {len(dlist)} posizioni-grafo.")
 
-    # --- Step 3: puzzle Lichess -> decompressione + split train/val/test ---
+    # Step 3: puzzle Lichess -> decompressione + split train/val/test con mate_range da 1 a 5
     def _step_decompress_puzzles():
         decompress_zst_csv(zst_path=puzzle_zst_path, out_csv=puzzle_csv_path)
 
@@ -416,7 +375,7 @@ def main():
             avg_time_by_rating=ctx["avg_time_by_rating"],
         )
 
-    # --- Step 4: merge puzzle + games PER-SPLIT -> dataset/merged/merged_{train,val,test}.pt ---
+    # Step 4: merge puzzle + games PER-SPLIT
     merged_paths = {
         split: os.path.join(merged_dir, f"merged_{split}.pt")
         for split in ("train", "val", "test")
@@ -435,7 +394,7 @@ def main():
         do_fn=_step_merge,
     )
 
-    # --- Step 5: held-out ESTERNO (chess.com), MAI mischiato col training ---
+    # Step 5: held-out ESTERNO (chess.com) con mate_range da 1 a 10
     def _step_holdout():
         build_external_holdout(
             external_csv=external_csv_path,
@@ -453,8 +412,6 @@ def main():
 
     logger.info(f"Train/val/test pronti in {merged_dir}/merged_{{train,val,test}}.pt")
     logger.info(f"Held-out ESTERNO (eval finale) in {holdout_path}")
-    logger.info("NB: per Component/Trainer.py usa merged_train.pt / merged_val.pt.")
-    logger.info("Per la valutazione finale/comparativa GNN vs LLM usa external_holdout.pt, non merged_test.pt.")
 
 
 if __name__ == "__main__":

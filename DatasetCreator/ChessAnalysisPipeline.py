@@ -3,7 +3,7 @@ import os
 import re
 import random
 import multiprocessing as mp
-from Model.graph_builder import GraphBuilder
+from DatasetCreator.GraphBuilder import GraphBuilder
 import chess
 import chess.pgn
 import chess.engine
@@ -13,28 +13,25 @@ from tqdm import tqdm
 import torch.multiprocessing as torch_mp
 torch_mp.set_sharing_strategy('file_system')
 
-
 _engine = None
-
 _CLK_RE = re.compile(r'\[%clk (\d+):(\d+):(\d+)\]')
 
-
 class ChessAnalysisPipeline:
-
-    
     def __init__(self, zst_path, stockfish_path, output_pt,
                  mate_range=(1, 5), time_limit=0.2, multipv=3,
-                 workers=None, max_games=None, seed=42, default_move_seconds=15.0):
+                 workers=None, max_games=None, seed=42, 
+                 default_move_seconds=15.0, require_eval_comment=True):
         self.zst_path = zst_path
         self.stockfish_path = stockfish_path
         self.output_pt = output_pt
         self.mate_range = mate_range
         self.time_limit = time_limit
         self.multipv = multipv
-        self.workers = 5
+        self.workers = workers or 5
         self.max_games = max_games
         self.seed = seed
         self.default_move_seconds = default_move_seconds
+        self.require_eval_comment = require_eval_comment
 
     @staticmethod
     def _init_worker(stockfish_path):
@@ -44,9 +41,6 @@ class ChessAnalysisPipeline:
 
     @staticmethod
     def _parse_clock(comment: str) -> float | None:
-        """Tempo RESIDUO sull'orologio (secondi) dopo la mossa, letto da %clk. Non e' la
-        durata della mossa: va combinato con il clock precedente dello stesso colore
-        (vedi _worker) per ottenere il tempo effettivamente speso."""
         m = _CLK_RE.search(comment or "")
         if not m:
             return None
@@ -55,7 +49,6 @@ class ChessAnalysisPipeline:
 
     @staticmethod
     def _parse_increment(time_control: str) -> float:
-        # TimeControl es. "300+0" -> base=300, incr=0. "-" (correspondence) -> 0.
         if not time_control or time_control == "-":
             return 0.0
         m = re.match(r'(\d+)\+(\d+)', time_control)
@@ -68,20 +61,16 @@ class ChessAnalysisPipeline:
             return game_id, []
 
         increment = self._parse_increment(game.headers.get("TimeControl", ""))
-
         data_list = []
         node = game
         lo, hi = self.mate_range
 
-        # clock residuo precedente per colore: serve per calcolare la durata della
-        # mossa successiva dello STESSO colore (bianco con bianco, nero con nero),
-        # stessa logica di TimeStatsBuilder.build().
         prev_clock = {chess.WHITE: None, chess.BLACK: None}
 
         while node.variations:
             nxt = node.variation(0)
             comment = nxt.comment or ""
-            mover_color = node.board().turn  # chi muove per arrivare a `nxt`
+            mover_color = node.board().turn
 
             clk = self._parse_clock(comment)
             move_duration = None
@@ -89,11 +78,11 @@ class ChessAnalysisPipeline:
                 prev = prev_clock[mover_color]
                 if prev is not None:
                     spent = prev - clk + increment
-                    if spent > 0:  # scarta valori negativi/rumore (stesso filtro di TimeStatsBuilder)
+                    if spent > 0:
                         move_duration = spent
                 prev_clock[mover_color] = clk
 
-            if "#" not in comment:
+            if self.require_eval_comment and "#" not in comment:
                 node = nxt
                 continue
 
@@ -108,14 +97,14 @@ class ChessAnalysisPipeline:
                 mate_n = info[0]["score"].relative.mate()
                 if mate_n > 0 and lo <= mate_n <= hi:
                     legal = list(board.legal_moves)
+                    
                     try:
-                        best_idx = legal.index(nxt.move)
-                    except ValueError:
+                        best_move = info[0]["pv"][0]
+                        best_idx = legal.index(best_move)
+                    except (ValueError, IndexError, KeyError):
                         node = nxt
                         continue
 
-                    # durata reale se disponibile, altrimenti fallback esplicito
-                    # (prima era: clock residuo grezzo o 15.0 -- semanticamente errato)
                     clock = move_duration if move_duration is not None else self.default_move_seconds
                     label = {"mate_n": mate_n, "best_move_idx": best_idx}
                     d = GraphBuilder.board_to_pyg_data(board, clock_seconds=clock, label=label)
@@ -141,8 +130,6 @@ class ChessAnalysisPipeline:
                 yield gid, str(g)
 
     def _assign_game_split(self, game_id: int) -> str:
-        """Split deterministico per game_id (80/10/10), indipendente dall'ordine
-        di arrivo dai worker paralleli: stesso game_id -> sempre stesso split."""
         rng = random.Random(self.seed + game_id)
         r = rng.random()
         if r < 0.8:
@@ -152,8 +139,6 @@ class ChessAnalysisPipeline:
         return "test"
 
     def run(self):
-        # Verifica ANCHE prima di iniziare la scansione (che puo' richiedere decine di minuti),
-        # cosi' l'errore per path mancante esce subito e non dopo aver buttato via il lavoro.
         out_dir = os.path.dirname(self.output_pt)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
@@ -168,7 +153,6 @@ class ChessAnalysisPipeline:
                 split_name = self._assign_game_split(game_id)
                 split_data[split_name].extend(data_list)
 
-        # Doppio check: se la cartella e' stata rimossa nel frattempo, non perdere comunque il lavoro.
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
 
