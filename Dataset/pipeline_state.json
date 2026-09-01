@@ -1,0 +1,10 @@
+{
+  "games_pipeline": {
+    "done": false,
+    "last_attempt_ts": 1788276799.344148,
+    "last_error": "ChessAnalysisPipeline.__init__() got an unexpected keyword argument 'threads'"
+  },
+  "time_stats": {
+    "done": true
+  }
+}

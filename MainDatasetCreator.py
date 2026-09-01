@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
+from Training_TestModel.timegnn.core import pipeline
 import chess
 import chess.engine
 import chess.pgn
@@ -446,12 +447,26 @@ def main():
             zst_path=raw_cfg["games_zst"],
             stockfish_path=stockfish_path,
             output_pt=games_output_base,
+
             mate_range=mate_train_range,
+
+            search_depth=10,
+
             max_games=games_cfg.get("max_games", 180000),
-            time_limit=games_cfg.get("time_limit_seconds", 0.2),
-            threads=engine_cfg.get("threads", 2),
-            hash_mb=engine_cfg.get("hash_mb", 256),
+
+            # Importante:
+            # molti processi, un solo thread Stockfish per processo
+            workers=games_cfg.get("workers", 8),
+            threads=1,
+
+            hash_mb=engine_cfg.get("hash_mb", 128),
+            multipv=1,
+
             split_ratios=split_ratios,
+
+            default_move_seconds=15.0,
+            require_clock=False,
+            min_ply=16,
         )
         splits, paths = pipeline.run()
         ctx["games_splits"] = splits

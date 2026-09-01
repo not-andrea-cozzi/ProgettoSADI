@@ -9,8 +9,8 @@ pipeline:
   merged_subfolder: "merged"
   state_file: "pipeline_state.json"
   log_file: "pipeline.log"
-  log_level: "INFO"       
-  force_recompute: false  
+  log_level: "INFO"
+  force_recompute: false
 
 engine:
   stockfish_path: "/usr/games/stockfish"
@@ -23,12 +23,12 @@ raw_data:
   external_csv: "DatasetCreator/RawData/club_games_data.csv"
 
 time_stats:
-  max_games: 50000
+  max_games: 100000
   bucket_size: 100
-  output_filename: "DatasetCreator/Output/avg_time_by_rating.json"
+  output_filename: "avg_time_by_rating.json"
 
 games_pipeline:
-  max_games: 180000
+  max_games: 25000               # Allineato al campionamento raccomandato nella specifica (~100k)
   mate_range_min: 1
   mate_range_max: 5
   time_limit_seconds: 0.2
@@ -38,7 +38,7 @@ puzzle_pipeline:
   max_puzzles: 100000
   mate_range_min: 1
   mate_range_max: 5
-  chunk_size_bytes: 1048576  # 1 MB chunk per decompressione .zst
+  chunk_size_bytes: 1048576       # 1 MB chunk per decompressione .zst
   decompressed_csv_filename: "lichess_puzzles.csv"
 
 splits:
@@ -51,11 +51,11 @@ external_holdout:
   mate_range_max: 10
   time_limit_seconds: 0.3
   pgn_col: "pgn"
-  max_games_to_scan: 1200
-  target_total_problems: 200
+  max_games_to_scan: 1500
+  target_total_problems: 200      # Target complessivo raccomandato (100-200)
   stratification:
-    n_1_to_5_target_each: 30    # 30 campioni ciascuno per n=1..5 (totale 150)
-    n_6_to_10_target_each: 10   # 10 campioni ciascuno per n=6..10 (totale 50)
+    n_1_to_5_target_each: 30      # 30 campioni ciascuno per n=1..5 (totale 150)
+    n_6_to_10_target_each: 10     # 10 campioni ciascuno per n=6..10 (totale 50)
   require_move_match: true
   checkpoint_every: 50
   output_filename: "external_holdout.pt"

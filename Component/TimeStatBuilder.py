@@ -6,6 +6,7 @@ from typing import Optional, Dict, Generator
 
 import chess.pgn
 import zstandard as zstd
+from tqdm import tqdm
 
 
 class TimeStatsBuilder:
@@ -68,7 +69,16 @@ class TimeStatsBuilder:
         bucket_sum: Dict[int, float] = defaultdict(float)
         bucket_count: Dict[int, int] = defaultdict(int)
 
-        for game in self._stream_games():
+        # Barra di avanzamento sulle partite analizzate
+        pbar = tqdm(
+            self._stream_games(),
+            total=self.max_games,
+            desc="Analisi Time Stats",
+            unit="partita",
+            dynamic_ncols=True
+        )
+
+        for game in pbar:
             headers = game.headers
             base_time, increment = self._parse_time_control(headers.get("TimeControl", ""))
             
