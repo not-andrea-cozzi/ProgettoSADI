@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
 from Training.TimeChainGnn import TimedPolicyGNN
-from Model.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from Training.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 
 logging.basicConfig(
     level=logging.INFO,
