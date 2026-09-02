@@ -182,7 +182,7 @@ VALID_STEPS = [
     "decompress_puzzles", "build_puzzles", "merge_and_split", "external_holdout",
 ]
 
-CONFIG_PATH = "config.yaml"
+CONFIG_PATH = "main.yaml"
 
 
 def main():

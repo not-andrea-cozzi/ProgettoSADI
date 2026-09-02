@@ -4,6 +4,7 @@ import os
 import sys
 from types import SimpleNamespace
 from typing import Dict, List, Tuple
+import yaml
 
 import numpy as np
 import torch
@@ -17,23 +18,16 @@ from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate
 from Training_TestModel.TimeChainGnn import TimedPolicyGNN
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 
-# --- CONFIGURAZIONE CENTRALIZZATA HARDCODED ---
-CONFIG = SimpleNamespace(
-    data_dir="dataset/merged",
-    checkpoint_dir="checkpoints",
-    plots_dir="plots",
-    out_dir="results/test_eval",
-    batch_size=24,
-    num_workers=4,
-    hidden_dim=128,
-    num_layers=4,
-    lambda_decay=0.01,
-    mate_loss_weight=0.3,
-    num_mate_classes=11,      # Classi 0..10 per MAX_MATE_N = 10
-    rating_bin_width=200,     # Ampiezza di ciascuna fascia di rating
-    rating_min=600,
-    rating_max=2800,
-)
+
+def load_config(config_path: str = "test.yaml") -> SimpleNamespace:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"File di configurazione {config_path} non trovato.")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f)
+    return SimpleNamespace(**config_dict)
+
+
+CONFIG = load_config("test.yaml")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -335,7 +329,6 @@ def main():
     logger.info(f"[Untimed] Loss={res_u['loss']:.4f} | Move Acc={res_u['move_acc']*100:.2f}% | "
                 f"Mate Acc={res_u['mate_acc']*100:.2f}% | N={res_u['n']}")
 
-    # 1. Esportazione metriche aggregate CSV
     csv_path = os.path.join(cfg.out_dir, "test_metrics.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -346,7 +339,6 @@ def main():
                     f"{res_u['move_acc']:.6f}", f"{res_u['mate_acc']:.6f}"])
     logger.info(f"Salvato {csv_path}")
 
-    # 2. Report testuale
     report_path = os.path.join(cfg.out_dir, "test_report.txt")
     with open(report_path, "w") as f:
         f.write("=== Report Test Set — TimedPolicyGNN vs Untimed ===\n\n")
@@ -357,15 +349,12 @@ def main():
             f.write(f"{m:<12}{res_t[m]:>12.4f}{res_u[m]:>12.4f}{delta:>+12.4f}\n")
     logger.info(f"Salvato {report_path}")
 
-    # 3. Grafico a barre aggregato
     plot_aggregate_bars(res_t, res_u, os.path.join(cfg.plots_dir, "aggregate_bars.png"))
 
-    # 4. Stratificazione per profondità di matto n
     depths, acc_t_depth, _ = per_mate_depth_metrics(res_t, max_n=10)
     _, acc_u_depth, _ = per_mate_depth_metrics(res_u, max_n=10)
     plot_per_mate_depth(depths, acc_t_depth, acc_u_depth, os.path.join(cfg.plots_dir, "per_mate_depth_move.png"))
 
-    # 5. Plot per fascia di rating
     if res_t["rating"] is not None and len(res_t["rating"]) > 0:
         bin_edges = np.arange(cfg.rating_min, cfg.rating_max + 1, cfg.rating_bin_width)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
@@ -401,7 +390,6 @@ def main():
                 ])
         logger.info(f"Salvato {per_rating_csv}")
 
-    # 6. Confusion Matrix Mate-in-N
     plot_confusion_matrix(res_t["mate_true"], res_t["mate_pred"], cfg.num_mate_classes,
                           "Confusion Matrix Mate-in-N (Timed)",
                           os.path.join(cfg.plots_dir, "confusion_mate_timed.png"))

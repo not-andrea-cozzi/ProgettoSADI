@@ -1,0 +1,16 @@
+# Configurazione per il test e la valutazione del modello TimedPolicyGNN
+data_dir: "Dataset/Train"
+checkpoint_dir: "Dataset/Checkpoints"
+plots_dir: "Modello/Plots_Test"
+out_dir: "Modello/Results_Test"
+
+batch_size: 24
+num_workers: 4
+hidden_dim: 128
+num_layers: 4
+lambda_decay: 0.01
+mate_loss_weight: 0.3
+num_mate_classes: 11      # Classi 0..10 per MAX_MATE_N = 10
+rating_bin_width: 200     # Ampiezza di ciascuna fascia di rating
+rating_min: 600
+rating_max: 2800

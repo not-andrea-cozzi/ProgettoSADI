@@ -4,6 +4,7 @@ import random
 import sys
 from types import SimpleNamespace
 from typing import Optional, Tuple
+import yaml
 
 import numpy as np
 import torch
@@ -11,35 +12,20 @@ from torch.utils.data import DataLoader
 
 from Training_TestModel.timegnn.train.early_stopping import EarlyStopping
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
-from Component.TimeStatBuilder import load_avg_time_by_rating
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from Training_TestModel.TimeChainGnn import TimedPolicyGNN
 from Training_TestModel.MetricLogger import TrainingMetricsLogger, StratifiedEvaluator
 
 
+def load_config(config_path: str = "train.yaml") -> SimpleNamespace:
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"File di configurazione {config_path} non trovato.")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f)
+    return SimpleNamespace(**config_dict)
 
 
-# --- CONFIGURAZIONE CENTRALIZZATA ---
-CONFIG = SimpleNamespace(
-    data_dir="dataset/merged",
-    time_stats_json="avg_time_by_rating.json",
-    checkpoint_dir="checkpoints",
-    results_dir="results",
-    epochs=30,
-    batch_size=24,
-    lr=1e-3,
-    hidden_dim=128,
-    num_layers=4,
-    lambda_decay=0.01,
-    mate_loss_weight=0.3,
-    patience=5,
-    num_workers=4,
-    seed=42,
-    grad_clip=1.0,
-    compile=False,
-    es_metric="val_move_acc",
-    max_mate_depth_eval=10,
-)
+CONFIG = load_config("train.yaml")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,7 +33,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("trainer")
-
+s
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -201,7 +187,6 @@ def train_one_config(
 
     if start_epoch >= cfg.epochs:
         logger.info(f"[{tag}] Configurazione già completata ({start_epoch}/{cfg.epochs} epoche).")
-        # Carica i migliori pesi prima di ritornare
         if os.path.exists(best_path):
             best_ckpt = torch.load(best_path, map_location=device, weights_only=False)
             model.load_state_dict(best_ckpt["model_state"])
@@ -220,7 +205,6 @@ def train_one_config(
             model, val_loader, optimizer=None, device=device, mate_loss_weight=cfg.mate_loss_weight, train=False
         )
 
-        # Logging delle metriche per i plot
         metrics_logger.log_epoch(
             tag, epoch, tr_loss, tr_m_acc, tr_mate_acc, val_loss, val_m_acc, val_mate_acc
         )
@@ -243,7 +227,6 @@ def train_one_config(
             logger.info(f"[{tag}] Early stopping attivato all'epoca {epoch}.")
             break
 
-    # Ricarica i migliori pesi salvati per la valutazione finale
     if os.path.exists(best_path):
         best_ckpt = torch.load(best_path, map_location=device, weights_only=False)
         model.load_state_dict(best_ckpt["model_state"])
@@ -290,10 +273,8 @@ def main():
         pin_memory=is_cuda, persistent_workers=use_persistent,
     )
 
-    # 1. Inizializzazione Logger delle metriche
     metrics_logger = TrainingMetricsLogger(output_dir=cfg.results_dir)
 
-    # 2. Addestramento dei due rami di ablazione (Timed vs Untimed)
     timed_model, timed_m_acc, timed_mate_acc = train_one_config(
         True, train_loader, val_loader, device, cfg, metrics_logger
     )
@@ -301,7 +282,6 @@ def main():
         False, train_loader, val_loader, device, cfg, metrics_logger
     )
 
-    # 3. Salvataggio ed esportazione dei plot di addestramento
     logger.info("Salvataggio delle metriche di training e generazione dei plot comparativi...")
     metrics_logger.save_metrics_to_disk()
     metrics_logger.plot_training_curves()
@@ -312,19 +292,11 @@ def main():
         f" - Senza segnale temporale: Move={untimed_m_acc*100:.2f}% | Mate={untimed_mate_acc*100:.2f}%"
     )
 
-    # 4. Step Post-Training: Valutazione Stratificata per profondità di matto n (1..10)
     logger.info("Avvio valutazione stratificata per profondità di matto (n=1..10)...")
     evaluator = StratifiedEvaluator(device=device, output_dir=os.path.join(cfg.results_dir, "eval"))
     
-    # Valutazione sui set (se disponi di un test split held-out separato puoi passarlo qui)
     strat_timed = evaluator.evaluate_stratified_gnn(timed_model, val_loader, max_n=cfg.max_mate_depth_eval)
     strat_untimed = evaluator.evaluate_stratified_gnn(untimed_model, val_loader, max_n=cfg.max_mate_depth_eval)
-
-    # (Opzionale) Risultati zero-shot/few-shot del modello LLM per n da 1 a 10
-    llm_baseline_results = {
-        1: 0.85, 2: 0.65, 3: 0.40, 4: 0.22, 5: 0.12,
-        6: 0.08, 7: 0.05, 8: 0.03, 9: 0.01, 10: 0.00
-    }
 
     evaluator.plot_and_save_stratified_comparison(
         timed_results=strat_timed,
