@@ -26,7 +26,7 @@ def load_config(config_path: str = "train.yaml") -> SimpleNamespace:
     return SimpleNamespace(**config_dict)
 
 
-CONFIG = load_config("train.yaml")
+CONFIG = load_config("Yaml/train.yaml")
 
 logging.basicConfig(
     level=logging.INFO,
