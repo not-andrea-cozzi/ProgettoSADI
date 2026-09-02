@@ -6,7 +6,8 @@
 pipeline:
   dataset_dir: "Dataset"
   puzzles_subfolder: "puzzles"
-  merged_subfolder: "merged"
+  merged_subfolder: "Train"      # output finale train/val/test -> Dataset/Train
+  holdout_subfolder: "Holdout"   # output esterno mate 1-10    -> Dataset/Holdout
   state_file: "pipeline_state.json"
   log_file: "pipeline.log"
   log_level: "INFO"
@@ -20,7 +21,7 @@ engine:
 raw_data:
   games_zst: "DatasetCreator/RawData/lichess_db_standard_rated_2020-01.pgn.zst"
   puzzles_zst: "DatasetCreator/RawData/lichess_db_puzzle.csv.zst"
-  external_csv: "DatasetCreator/RawData/club_games_data.csv"
+  external_csv: "DatasetCreator/RawData/club_games_data.csv.zip"
 
 time_stats:
   max_games: 100000
@@ -28,10 +29,16 @@ time_stats:
   output_filename: "avg_time_by_rating.json"
 
 games_pipeline:
-  max_games: 25000               # Allineato al campionamento raccomandato nella specifica (~100k)
+  max_games: 100000               # Allineato al campionamento raccomandato nella specifica (~100k)
   mate_range_min: 1
   mate_range_max: 5
-  time_limit_seconds: 0.2
+  search_depth: 6                 # ridotto da 10: mate 1-5 non richiede profondita' alta
+  time_limit_seconds: 0.15        # ha priorita' su search_depth (analysis_time)
+  max_piece_count: 18             # scarta posizioni affollate pre-Stockfish
+  only_decisive_games: true       # scarta patte (mai producono mate)
+  skip_time_forfeit: true         # scarta vittorie per tempo scaduto
+  ply_sample_step: 3              # analizza 1 posizione ogni 3 ply (non tutte)
+  max_positions_per_game: 20      # cap duro sul numero di chiamate Stockfish/partita
   output_base_filename: "games.pt"
 
 puzzle_pipeline:

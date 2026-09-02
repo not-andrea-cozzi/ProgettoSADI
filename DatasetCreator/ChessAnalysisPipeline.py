@@ -1,3 +1,4 @@
+import atexit
 import io
 import os
 import re
@@ -25,6 +26,37 @@ _engine: Optional[chess.engine.SimpleEngine] = None
 # [ %clk 0:05:32.4 ]
 # [ %clk 1:23:45 ]
 _CLK_RE = re.compile(r"\[\s*%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\s*\]")
+
+
+def _close_engine() -> None:
+    """
+    Chiude in modo pulito l'istanza Stockfish del worker corrente.
+
+    FONDAMENTALE: senza questa chiusura esplicita, il sottoprocesso
+    Stockfish resta in attesa su una read bloccante dalla pipe stdin
+    (non ha mai ricevuto il comando UCI 'quit'). Quando il Pool prova
+    a fare pool.join() dopo pool.close(), il processo worker Python
+    non termina mai perche' il suo figlio Stockfish e' ancora vivo e
+    appeso: l'intera pipeline si blocca indefinitamente in run(),
+    anche a lavoro di analisi gia' completato, PRIMA del torch.save
+    finale (quindi con perdita totale del lavoro svolto).
+
+    Registrata sia come atexit (rete di sicurezza per terminazioni
+    impreviste del worker) sia chiamata esplicitamente a fine _worker
+    quando il pool sta per chiudere i processi.
+    """
+    global _engine
+
+    if _engine is not None:
+        try:
+            _engine.quit()
+        except Exception:
+            # Se il processo Stockfish e' gia' morto o non risponde,
+            # non c'e' nulla di sensato da fare: proseguiamo comunque
+            # con la chiusura del worker.
+            pass
+        finally:
+            _engine = None
 
 
 class ChessAnalysisPipeline:
@@ -69,7 +101,7 @@ class ChessAnalysisPipeline:
         stockfish_path: str,
         output_pt: str,
         mate_range: Tuple[int, int] = (1, 5),
-        search_depth: int = 10,
+        search_depth: int = 6,
         workers: Optional[int] = None,
         threads: int = 1,
         hash_mb: int = 128,
@@ -80,13 +112,18 @@ class ChessAnalysisPipeline:
         require_clock: bool = False,
         min_ply: int = 16,
         split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
-        analysis_time: Optional[float] = None,
+        analysis_time: Optional[float] = 0.15,
         min_game_plies: int = 20,
         skip_no_time_control: bool = False,
-        max_positions_per_game: Optional[int] = None,
+        max_positions_per_game: Optional[int] = 20,
         candidate_min_legal_moves: int = 1,
         candidate_max_legal_moves: Optional[int] = None,
         skip_if_in_check: bool = False,
+        max_piece_count: Optional[int] = 18,
+        only_decisive_games: bool = True,
+        skip_time_forfeit: bool = True,
+        ply_sample_step: int = 3,
+        pool_join_timeout: Optional[float] = 15.0,
     ):
         self.zst_path = zst_path
         self.stockfish_path = stockfish_path
@@ -111,6 +148,24 @@ class ChessAnalysisPipeline:
         self.candidate_min_legal_moves = candidate_min_legal_moves
         self.candidate_max_legal_moves = candidate_max_legal_moves
         self.skip_if_in_check = skip_if_in_check
+        # NUOVO: scarta posizioni troppo affollate (mate 1-5 raro con molto materiale).
+        self.max_piece_count = max_piece_count
+        # NUOVO: scarta partite patte (mai portano a mate) e vittorie per tempo
+        # (spesso la posizione finale non è un vero mate tattico).
+        self.only_decisive_games = only_decisive_games
+        self.skip_time_forfeit = skip_time_forfeit
+        # NUOVO: campiona 1 posizione ogni N ply invece di analizzarle tutte.
+        # Un mate forzato in 1-5 resta rilevabile anche non controllando ogni
+        # singola mezza-mossa: questo taglia direttamente il numero di
+        # chiamate Stockfish, che e' il vero collo di bottiglia.
+        self.ply_sample_step = max(1, ply_sample_step)
+
+        # NUOVO: timeout massimo (secondi) per pool.join(). Se allo scadere
+        # i worker non sono ancora terminati (es. Stockfish rimasto appeso
+        # nonostante _close_engine), forziamo pool.terminate() invece di
+        # restare bloccati per sempre. None disabilita il timeout
+        # (comportamento equivalente al blocking join originale).
+        self.pool_join_timeout = pool_join_timeout
 
         # Per questo workload è generalmente preferibile avere
         # molti processi con un solo thread Stockfish ciascuno.
@@ -167,6 +222,9 @@ class ChessAnalysisPipeline:
         if self.analysis_time is not None and self.analysis_time <= 0:
             raise ValueError("analysis_time deve essere > 0.")
 
+        if self.max_piece_count is not None and self.max_piece_count < 2:
+            raise ValueError("max_piece_count deve essere >= 2 (almeno i due re).")
+
         if len(self.split_ratios) != 3:
             raise ValueError(
                 "split_ratios deve contenere train, val e test."
@@ -207,6 +265,11 @@ class ChessAnalysisPipeline:
             raise RuntimeError(
                 f"Impossibile avviare Stockfish: {e}"
             )
+
+        # Rete di sicurezza: garantisce che Stockfish riceva 'quit'
+        # anche se il worker termina per vie diverse dal normale
+        # ritorno di _worker (crash, eccezione non gestita, ecc.).
+        atexit.register(_close_engine)
 
     # ================================================================
     # CLOCK
@@ -348,6 +411,20 @@ class ChessAnalysisPipeline:
             if not time_control or time_control == "-":
                 return False
 
+        # NUOVO: scarta partite patte -- un mate 1-5 puo' esistere solo
+        # su una linea che porta a un vero scacco matto (1-0 / 0-1).
+        if self.only_decisive_games:
+            result = game.headers.get("Result", "")
+            if result not in ("1-0", "0-1"):
+                return False
+
+        # NUOVO: le vittorie per tempo scaduto raramente corrispondono
+        # a una posizione con un vero mate forzato entro pochi ply.
+        if self.skip_time_forfeit:
+            termination = game.headers.get("Termination", "")
+            if "Time forfeit" in termination:
+                return False
+
         return True
 
     # ================================================================
@@ -381,6 +458,14 @@ class ChessAnalysisPipeline:
         if board.is_insufficient_material():
             return None
 
+        # NUOVO: filtro materiale economico (nessuna chiamata a Stockfish).
+        # Mate forzato in 1-5 ply e' statisticamente raro su scacchiere
+        # molto affollate; scartarle qui evita analisi costose che quasi
+        # certamente non produrranno un mate nel range richiesto.
+        if self.max_piece_count is not None:
+            if len(board.piece_map()) > self.max_piece_count:
+                return None
+
         # Calcoliamo le mosse legali una sola volta.
         legal_moves = list(board.legal_moves)
 
@@ -413,7 +498,8 @@ class ChessAnalysisPipeline:
         """
         Analizza una posizione con Stockfish.
 
-        Se analysis_time è specificato usa un limite temporale.
+        Se analysis_time è specificato usa un limite temporale
+        (default, piu' stabile su CPU eterogenee/cloud).
         Altrimenti usa la profondità configurata.
 
         La ricerca viene limitata al massimo mate del dataset.
@@ -574,6 +660,17 @@ class ChessAnalysisPipeline:
             # --------------------------------------------------------
 
             if node.ply() < self.min_ply:
+                node = next_node
+                continue
+
+            # --------------------------------------------------------
+            # PLY SAMPLING
+            # --------------------------------------------------------
+            # Analizza solo 1 posizione ogni ply_sample_step, invece di
+            # ogni singola mezza-mossa. Riduce direttamente il numero di
+            # chiamate Stockfish (il vero collo di bottiglia), mantenendo
+            # comunque buona copertura tattica per mate 1-5.
+            if (node.ply() - self.min_ply) % self.ply_sample_step != 0:
                 node = next_node
                 continue
 
@@ -959,7 +1056,93 @@ class ChessAnalysisPipeline:
                 )
 
         finally:
+            # ----------------------------------------------------------
+            # CHIUSURA POOL (fix del deadlock)
+            # ----------------------------------------------------------
+            # CRITICO: pool.close() smette di accettare nuovi task ma NON
+            # chiude i processi worker ne' i loro sottoprocessi Stockfish.
+            # Ogni worker termina solo quando il processo Python esce
+            # naturalmente. Se Stockfish non ha mai ricevuto 'quit', resta
+            # appeso in lettura sulla pipe e il processo worker non muore
+            # mai: pool.join() si blocca indefinitamente, PRIMA del
+            # torch.save finale, con perdita totale del lavoro svolto
+            # (bug osservato in produzione: 100% dei task completati,
+            # processo comunque bloccato per ore in pool.join()).
+            #
+            # _close_engine() e' registrata con atexit in _init_worker:
+            # quando ogni processo worker esce (perche' il Pool lo
+            # termina), l'handler atexit prova a chiudere Stockfish
+            # pulitamente PRIMA che il processo Python muoia del tutto.
+            # Non e' pero' garanzia assoluta (un worker puo' restare
+            # comunque appeso in casi patologici, es. Stockfish non
+            # risponde nemmeno a 'quit'), quindi affianchiamo un timeout
+            # deterministico: se dopo pool_join_timeout secondi qualche
+            # worker e' ancora vivo, forziamo pool.terminate() (SIGTERM
+            # ai processi) invece di restare bloccati indefinitamente.
             pool.close()
+
+            if self.pool_join_timeout is not None:
+                import time
+
+                deadline = time.monotonic() + self.pool_join_timeout
+
+                # IMPORTANTE: il timeout deve essere un budget TOTALE
+                # condiviso tra tutti i worker, non un timeout pieno per
+                # ciascuno. La versione precedente chiamava
+                # proc.join(timeout=self.pool_join_timeout) in sequenza
+                # per ogni processo: con N worker, il caso peggiore
+                # diventava N * pool_join_timeout secondi invece di
+                # pool_join_timeout secondi totali (osservato: con 8
+                # worker e timeout=30s, fino a 4 minuti di attesa reale
+                # prima che scattasse pool.terminate()).
+                for proc in pool._pool:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    proc.join(timeout=remaining)
+
+                still_alive = [
+                    proc for proc in pool._pool if proc.is_alive()
+                ]
+
+                if still_alive:
+                    stale_pids = [proc.pid for proc in still_alive]
+
+                    print(
+                        f"\n[WARNING] {len(still_alive)} worker non "
+                        f"terminati entro {self.pool_join_timeout}s "
+                        f"dopo pool.close() (Stockfish non ha chiuso "
+                        f"correttamente). Forzo pool.terminate() per "
+                        f"evitare un blocco indefinito prima del "
+                        f"salvataggio."
+                    )
+                    pool.terminate()
+
+                    # pool.terminate() manda SIGTERM ai processi worker
+                    # Python, ma non garantisce che il loro sottoprocesso
+                    # Stockfish (figlio del worker, non del Pool) venga
+                    # ucciso a sua volta: puo' restare come processo
+                    # orfano che continua a occupare CPU/RAM inutilmente.
+                    # Best-effort: proviamo a terminarli via psutil se
+                    # disponibile, altrimenti segnaliamo il da farsi.
+                    try:
+                        import psutil
+
+                        for pid in stale_pids:
+                            try:
+                                parent = psutil.Process(pid)
+                                for child in parent.children(recursive=True):
+                                    child.terminate()
+                            except psutil.NoSuchProcess:
+                                continue
+                    except ImportError:
+                        print(
+                            "[WARNING] Modulo 'psutil' non disponibile: "
+                            "impossibile terminare automaticamente eventuali "
+                            "processi Stockfish orfani residui. Verificare "
+                            "manualmente con 'ps aux | grep stockfish'."
+                        )
+
             pool.join()
 
         # ------------------------------------------------------------

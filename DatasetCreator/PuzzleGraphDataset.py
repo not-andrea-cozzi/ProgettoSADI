@@ -1,5 +1,6 @@
 import os
 import random
+from typing import Tuple
 from DatasetCreator.GraphBuilder import GraphBuilder
 import chess
 import torch
@@ -21,7 +22,8 @@ def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str):
 
 class PuzzleGraphDataset(InMemoryDataset):
     def __init__(self, csv_path, root, split="train", mate_range=(1, 5),
-                 max_puzzles=None, seed=42, avg_time_by_rating=None, chunksize=50_000):
+                 max_puzzles=None, seed=42, avg_time_by_rating=None, chunksize=50_000,
+                 split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1)):
         self.csv_path = csv_path
         self.mate_range = mate_range
         self.max_puzzles = max_puzzles
@@ -29,6 +31,16 @@ class PuzzleGraphDataset(InMemoryDataset):
         self.split = split
         self.avg_time_by_rating = avg_time_by_rating or {}
         self.chunksize = chunksize
+
+        # Validazione: stessa logica usata altrove nella pipeline
+        # (vedi validate_config in MainDatasetCreator.py), per coerenza
+        # e per evitare split silenziosamente sbagliati.
+        if len(split_ratios) != 3:
+            raise ValueError("split_ratios deve contenere train, val e test.")
+        if abs(sum(split_ratios) - 1.0) > 1e-6:
+            raise ValueError("split_ratios deve sommare a 1.0.")
+        self.split_ratios = split_ratios
+
         super().__init__(root)
         self.data, self.slices = torch.load(self.processed_paths[0], weights_only=False)
 
@@ -59,7 +71,14 @@ class PuzzleGraphDataset(InMemoryDataset):
         rows_sorted = sorted(rows, key=lambda r: r["PuzzleId"])
         random.Random(self.seed).shuffle(rows_sorted)
         n = len(rows_sorted)
-        i_train, i_val = int(n * 0.8), int(n * 0.9)
+
+        # Usa split_ratios configurabile invece dei valori 0.8/0.9
+        # precedentemente hardcoded, per coerenza con split_cfg
+        # applicato al resto della pipeline (games_pipeline, merge).
+        train_ratio, val_ratio, _ = self.split_ratios
+        i_train = int(n * train_ratio)
+        i_val = int(n * (train_ratio + val_ratio))
+
         return {
             "train": rows_sorted[:i_train],
             "val": rows_sorted[i_train:i_val],

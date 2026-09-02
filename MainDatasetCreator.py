@@ -392,9 +392,10 @@ def main():
     stockfish_path = args.stockfish_path or engine_cfg["stockfish_path"]
     dataset_dir = pipe_cfg.get("dataset_dir", "Dataset")
     puzzles_dir = os.path.join(dataset_dir, pipe_cfg.get("puzzles_subfolder", "puzzles"))
-    merged_dir = os.path.join(dataset_dir, pipe_cfg.get("merged_subfolder", "merged"))
+    merged_dir = os.path.join(dataset_dir, pipe_cfg.get("merged_subfolder", "Train"))
+    holdout_dir = os.path.join(dataset_dir, pipe_cfg.get("holdout_subfolder", "Holdout"))
 
-    for d in (dataset_dir, puzzles_dir, merged_dir):
+    for d in (dataset_dir, puzzles_dir, merged_dir, holdout_dir):
         os.makedirs(d, exist_ok=True)
 
     state_file = pipe_cfg.get("state_file", "pipeline_state.json")
@@ -408,7 +409,7 @@ def main():
     time_stats_path = os.path.join(dataset_dir, stats_cfg.get("output_filename", "avg_time_by_rating.json"))
     puzzle_csv_path = os.path.join(dataset_dir, puzzle_cfg.get("decompressed_csv_filename", "lichess_puzzles.csv"))
     games_output_base = os.path.join(dataset_dir, games_cfg.get("output_base_filename", "games.pt"))
-    holdout_path = os.path.join(merged_dir, holdout_cfg.get("output_filename", "external_holdout.pt"))
+    holdout_path = os.path.join(holdout_dir, holdout_cfg.get("output_filename", "external_holdout.pt"))
 
     mate_train_range = (games_cfg.get("mate_range_min", 1), games_cfg.get("mate_range_max", 5))
     mate_holdout_range = (holdout_cfg.get("mate_range_min", 1), holdout_cfg.get("mate_range_max", 10))
@@ -450,7 +451,10 @@ def main():
 
             mate_range=mate_train_range,
 
-            search_depth=10,
+            # analysis_time ha priorita' su search_depth (vedi _analyse_position).
+            # search_depth resta come fallback se analysis_time=None.
+            search_depth=games_cfg.get("search_depth", 6),
+            analysis_time=games_cfg.get("time_limit_seconds", 0.15),
 
             max_games=games_cfg.get("max_games", 180000),
 
@@ -467,6 +471,13 @@ def main():
             default_move_seconds=15.0,
             require_clock=False,
             min_ply=16,
+
+            # Filtri di velocizzazione pre-Stockfish.
+            max_piece_count=games_cfg.get("max_piece_count", 18),
+            only_decisive_games=games_cfg.get("only_decisive_games", True),
+            skip_time_forfeit=games_cfg.get("skip_time_forfeit", True),
+            ply_sample_step=games_cfg.get("ply_sample_step", 3),
+            max_positions_per_game=games_cfg.get("max_positions_per_game", 20),
         )
         splits, paths = pipeline.run()
         ctx["games_splits"] = splits
@@ -582,7 +593,7 @@ def main():
 
     logger.info("Pipeline completata con successo.")
     logger.info(f"Dataset train/val/test pronti in: {merged_dir}")
-    logger.info(f"Held-out set di validazione esterna pronto in: {holdout_path}")
+    logger.info(f"Held-out set di validazione esterna pronto in: {holdout_dir}")
 
 
 if __name__ == "__main__":
