@@ -177,4 +177,4 @@ pyrightconfig.json
 
 DatasetCreator/RawData/
 dataset/
-venv/Dataset/
+Dataset/

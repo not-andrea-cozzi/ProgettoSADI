@@ -22,6 +22,12 @@ torch_mp.set_sharing_strategy("file_system")
 # Ogni worker possiede la propria istanza Stockfish.
 _engine: Optional[chess.engine.SimpleEngine] = None
 
+# Ogni worker possiede la propria istanza Syzygy (se configurata).
+# None se syzygy_path non e' stato fornito, oppure se l'apertura
+# dei file tablebase fallisce: in entrambi i casi lo screening WDL
+# viene semplicemente saltato (fallback trasparente su Stockfish).
+_tablebase: Optional["chess.syzygy.Tablebase"] = None
+
 # Esempi supportati:
 # [ %clk 0:05:32.4 ]
 # [ %clk 1:23:45 ]
@@ -30,7 +36,8 @@ _CLK_RE = re.compile(r"\[\s*%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\s*\]")
 
 def _close_engine() -> None:
     """
-    Chiude in modo pulito l'istanza Stockfish del worker corrente.
+    Chiude in modo pulito l'istanza Stockfish (e Syzygy, se aperta)
+    del worker corrente.
 
     FONDAMENTALE: senza questa chiusura esplicita, il sottoprocesso
     Stockfish resta in attesa su una read bloccante dalla pipe stdin
@@ -45,7 +52,7 @@ def _close_engine() -> None:
     impreviste del worker) sia chiamata esplicitamente a fine _worker
     quando il pool sta per chiudere i processi.
     """
-    global _engine
+    global _engine, _tablebase
 
     if _engine is not None:
         try:
@@ -57,6 +64,14 @@ def _close_engine() -> None:
             pass
         finally:
             _engine = None
+
+    if _tablebase is not None:
+        try:
+            _tablebase.close()
+        except Exception:
+            pass
+        finally:
+            _tablebase = None
 
 
 class ChessAnalysisPipeline:
@@ -107,6 +122,7 @@ class ChessAnalysisPipeline:
         hash_mb: int = 128,
         multipv: int = 1,
         max_games: Optional[int] = None,
+        skip_games: int = 0,
         seed: int = 42,
         default_move_seconds: float = 15.0,
         require_clock: bool = False,
@@ -124,6 +140,8 @@ class ChessAnalysisPipeline:
         skip_time_forfeit: bool = True,
         ply_sample_step: int = 3,
         pool_join_timeout: Optional[float] = 15.0,
+        syzygy_path: Optional[str] = None,
+        min_material_for_mate_attempt: int = 4,
     ):
         self.zst_path = zst_path
         self.stockfish_path = stockfish_path
@@ -134,6 +152,7 @@ class ChessAnalysisPipeline:
         self.hash_mb = hash_mb
         self.multipv = multipv
         self.max_games = max_games
+        self.skip_games = skip_games
         self.seed = seed
         self.default_move_seconds = default_move_seconds
         self.require_clock = require_clock
@@ -166,6 +185,22 @@ class ChessAnalysisPipeline:
         # restare bloccati per sempre. None disabilita il timeout
         # (comportamento equivalente al blocking join originale).
         self.pool_join_timeout = pool_join_timeout
+
+        # NUOVO: cartella file Syzygy (.rtbw/.rtbz) per lo screening WDL
+        # pre-Stockfish. None (default) disattiva completamente questa via:
+        # nessuna dipendenza aggiuntiva se non hai i file tablebase.
+        self.syzygy_path = syzygy_path
+
+        # NUOVO: filtro economico basato sul materiale del lato che deve
+        # muovere. Un matto forzato in poche mosse richiede tipicamente
+        # abbastanza forza d'attacco (una donna, una coppia di torri, torre
+        # + pezzo minore, ecc.). Il valore e' la somma dei valori standard
+        # (Q=9,R=5,B=3,N=3,P=1) dei pezzi del lato di turno, re escluso.
+        # Sotto soglia, un mate 1-5 e' statisticamente trascurabile: si
+        # scarta la posizione prima di chiamare Stockfish. Il default (4)
+        # e' volutamente permissivo (es. R da solo passa, R+minore passa,
+        # ma K da solo o K+P da soli no) per non perdere veri mate.
+        self.min_material_for_mate_attempt = min_material_for_mate_attempt
 
         # Per questo workload è generalmente preferibile avere
         # molti processi con un solo thread Stockfish ciascuno.
@@ -232,6 +267,14 @@ class ChessAnalysisPipeline:
 
         if abs(sum(self.split_ratios) - 1.0) > 1e-6:
             raise ValueError("split_ratios deve sommare a 1.0.")
+            
+        if self.skip_games < 0:
+            raise ValueError("skip_games deve essere >= 0.")
+
+        if self.min_material_for_mate_attempt < 0:
+            raise ValueError(
+                "min_material_for_mate_attempt deve essere >= 0."
+            )
 
     # ================================================================
     # STOCKFISH INITIALIZATION
@@ -242,11 +285,13 @@ class ChessAnalysisPipeline:
         stockfish_path: str,
         threads: int,
         hash_mb: int,
+        syzygy_path: Optional[str] = None,
     ) -> None:
         """
-        Crea una singola istanza Stockfish per worker.
+        Crea una singola istanza Stockfish per worker, e opzionalmente
+        una istanza Syzygy se syzygy_path e' stato configurato.
         """
-        global _engine
+        global _engine, _tablebase
 
         try:
             _engine = chess.engine.SimpleEngine.popen_uci(
@@ -266,9 +311,19 @@ class ChessAnalysisPipeline:
                 f"Impossibile avviare Stockfish: {e}"
             )
 
-        # Rete di sicurezza: garantisce che Stockfish riceva 'quit'
-        # anche se il worker termina per vie diverse dal normale
-        # ritorno di _worker (crash, eccezione non gestita, ecc.).
+        # Apertura Syzygy: solo best-effort. Se la cartella non esiste,
+        # e' vuota, o mancano i moduli, NON blocchiamo la pipeline:
+        # semplicemente lo screening WDL resta disattivato per questo
+        # worker e tutto procede via Stockfish come prima.
+        if syzygy_path:
+            try:
+                _tablebase = chess.syzygy.open_tablebase(syzygy_path)
+            except Exception:
+                _tablebase = None
+
+        # Rete di sicurezza: garantisce che Stockfish (e Syzygy) ricevano
+        # una chiusura pulita anche se il worker termina per vie diverse
+        # dal normale ritorno di _worker (crash, eccezione non gestita).
         atexit.register(_close_engine)
 
     # ================================================================
@@ -486,6 +541,93 @@ class ChessAnalysisPipeline:
             return None
 
         return legal_moves
+
+    # ================================================================
+    # ECONOMIC MATE-POTENTIAL FILTER
+    # ================================================================
+
+    _PIECE_VALUES: Dict[int, int] = {
+        chess.PAWN: 1,
+        chess.KNIGHT: 3,
+        chess.BISHOP: 3,
+        chess.ROOK: 5,
+        chess.QUEEN: 9,
+    }
+
+    def _has_mating_material(
+        self,
+        board: chess.Board,
+    ) -> bool:
+        """
+        Filtro economico (nessuna chiamata a Stockfish/Syzygy).
+
+        Somma il valore standard dei pezzi del lato che deve muovere
+        (re escluso). Un matto forzato in poche mosse richiede quasi
+        sempre una soglia minima di forza d'attacco: re nudo o re+pedone
+        da soli non producono quasi mai un mate 1-5 forzato contro un
+        avversario che gioca le mosse legali migliori.
+
+        Deliberatamente permissivo (soglia bassa di default) per non
+        scartare mate reali: l'obiettivo e' eliminare solo i casi in
+        cui un matto forzato e' materialmente impossibile o comunque
+        statisticamente trascurabile, non fare una valutazione tattica.
+        """
+        mover = board.turn
+
+        material = sum(
+            self._PIECE_VALUES.get(piece.piece_type, 0)
+            for piece in board.piece_map().values()
+            if piece.color == mover
+        )
+
+        return material >= self.min_material_for_mate_attempt
+
+    # ================================================================
+    # SYZYGY SCREENING
+    # ================================================================
+
+    def _syzygy_says_no_mate(
+        self,
+        board: chess.Board,
+    ) -> bool:
+        """
+        Screening istantaneo pre-Stockfish via tablebase Syzygy (se
+        configurata e disponibile per la composizione di materiale
+        corrente).
+
+        Ritorna True SOLO quando siamo certi che un mate per il lato
+        di turno e' impossibile (posizione patta o persa per chi deve
+        muovere secondo WDL): in quel caso si scarta la posizione senza
+        mai chiamare Stockfish.
+
+        Ritorna False in ogni altro caso, incluso quando Syzygy non e'
+        disponibile, non copre questa composizione di pezzi, o il probe
+        fallisce: il fallback e' sempre "lascia decidere Stockfish",
+        mai un falso scarto.
+        """
+        global _tablebase
+
+        if _tablebase is None:
+            return False
+
+        # Syzygy non include posizioni con diritti di arrocco ancora
+        # disponibili: il probe non e' valido in quel caso.
+        if board.has_castling_rights(chess.WHITE) or board.has_castling_rights(chess.BLACK):
+            return False
+
+        try:
+            wdl = _tablebase.probe_wdl(board)
+        except (KeyError, chess.syzygy.MissingTableError):
+            # Composizione non coperta dai file disponibili.
+            return False
+        except Exception:
+            # Qualunque altro problema di probing: non blocchiamo mai
+            # la pipeline per questo, si procede su Stockfish.
+            return False
+
+        # wdl e' relativo al lato che deve muovere: <= 0 significa
+        # patta o persa, quindi nessun mate per lui e' possibile.
+        return wdl is not None and wdl <= 0
 
     # ================================================================
     # STOCKFISH ANALYSIS
@@ -710,6 +852,27 @@ class ChessAnalysisPipeline:
                 continue
 
             # --------------------------------------------------------
+            # MATE-POTENTIAL FILTER (economico, no engine)
+            # --------------------------------------------------------
+            # Scarta posizioni dove il lato di turno non ha abbastanza
+            # materiale per un matto forzato plausibile in mate_hi mosse.
+            if not self._has_mating_material(board):
+                positions_filtered += 1
+                node = next_node
+                continue
+
+            # --------------------------------------------------------
+            # SYZYGY SCREENING (istantaneo, prima di Stockfish)
+            # --------------------------------------------------------
+            # Se la tablebase e' disponibile e certifica che la
+            # posizione e' patta o persa per chi muove, un mate per
+            # lui e' impossibile: si evita la chiamata a Stockfish.
+            if self._syzygy_says_no_mate(board):
+                positions_filtered += 1
+                node = next_node
+                continue
+
+            # --------------------------------------------------------
             # STOCKFISH
             # --------------------------------------------------------
 
@@ -863,7 +1026,7 @@ class ChessAnalysisPipeline:
     ]:
         """
         Legge il file PGN.zst in streaming senza caricarlo
-        interamente nella RAM.
+        interamente nella RAM, saltando le prime skip_games partite.
         """
 
         decompressor = zstd.ZstdDecompressor()
@@ -883,6 +1046,7 @@ class ChessAnalysisPipeline:
                 )
 
                 game_id = 0
+                yielded_games = 0
 
                 current_game: List[str] = []
 
@@ -895,16 +1059,18 @@ class ChessAnalysisPipeline:
                     ):
                         game_id += 1
 
-                        yield (
-                            game_id,
-                            "".join(current_game),
-                        )
+                        if game_id > self.skip_games:
+                            yield (
+                                game_id,
+                                "".join(current_game),
+                            )
+                            yielded_games += 1
 
-                        if (
-                            self.max_games is not None
-                            and game_id >= self.max_games
-                        ):
-                            return
+                            if (
+                                self.max_games is not None
+                                and yielded_games >= self.max_games
+                            ):
+                                return
 
                         current_game = [line]
 
@@ -913,16 +1079,17 @@ class ChessAnalysisPipeline:
 
                 # Ultima partita.
                 if current_game:
-                    if (
-                        self.max_games is None
-                        or game_id < self.max_games
-                    ):
-                        game_id += 1
-
-                        yield (
-                            game_id,
-                            "".join(current_game),
-                        )
+                    game_id += 1
+                    
+                    if game_id > self.skip_games:
+                        if (
+                            self.max_games is None
+                            or yielded_games < self.max_games
+                        ):
+                            yield (
+                                game_id,
+                                "".join(current_game),
+                            )
 
     # ================================================================
     # SPLIT
@@ -1008,6 +1175,7 @@ class ChessAnalysisPipeline:
                 self.stockfish_path,
                 self.threads,
                 self.hash_mb,
+                self.syzygy_path,
             ),
         )
 
@@ -1223,10 +1391,7 @@ class ChessAnalysisPipeline:
             f"{len(split_data['test']):,}"
         )
 
-        print(
-            f"Totale posizioni: "
-            f"{total_positions:,}"
-        )
+        print(f"Totale posizioni:{total_positions:,}")
 
         print("=" * 60)
 

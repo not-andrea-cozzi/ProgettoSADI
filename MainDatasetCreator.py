@@ -1,23 +1,16 @@
-import argparse
-import io
 import logging
 import os
 import sys
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from Training_TestModel.timegnn.core import pipeline
-import chess
-import chess.engine
-import chess.pgn
-import pandas as pd
 import torch
 import zstandard as zstd
 from tqdm import tqdm
 import yaml
 
-from DatasetCreator.GraphBuilder import GraphBuilder
 from DatasetCreator.ChessAnalysisPipeline import ChessAnalysisPipeline
+from DatasetCreator.ExternalHoldoutBuilder import ExternalHoldoutBuilder
 from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
@@ -164,155 +157,6 @@ def build_puzzle_pt(
     return splits
 
 
-@retry(max_attempts=3, base_delay=5.0, exceptions=(chess.engine.EngineError, OSError, BrokenPipeError))
-def open_engine(stockfish_path: str, threads: int = 2, hash_mb: int = 256) -> chess.engine.SimpleEngine:
-    engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
-    engine.configure({"Threads": threads, "Hash": hash_mb})
-    return engine
-
-
-def build_external_holdout(
-    external_csv: str,
-    stockfish_path: str,
-    out_pt: str,
-    mate_range: Tuple[int, int] = (1, 10),
-    time_limit: float = 0.3,
-    pgn_col: str = "pgn",
-    max_games_to_scan: Optional[int] = None,
-    target_total_problems: int = 200,
-    stratification_config: Optional[Dict[str, int]] = None,
-    threads: int = 2,
-    hash_mb: int = 256,
-    require_move_match: bool = True,
-    checkpoint_every: int = 50,
-) -> List[Any]:
-    require_file(external_csv, "Verificare il file CSV esterno per l'held-out.")
-    require_executable(stockfish_path, "Verificare il percorso del binario Stockfish.")
-
-    df = pd.read_csv(external_csv)
-    if max_games_to_scan:
-        df = df.head(max_games_to_scan)
-    if pgn_col not in df.columns:
-        raise PipelineConfigError(
-            f"Colonna '{pgn_col}' assente in {external_csv}. Colonne disponibili: {list(df.columns)}"
-        )
-
-    lo, hi = mate_range
-    strat_targets: Dict[int, int] = {}
-    cfg_strat = stratification_config or {}
-    t_1_5 = cfg_strat.get("n_1_to_5_target_each", 30)
-    t_6_10 = cfg_strat.get("n_6_to_10_target_each", 10)
-
-    for n in range(lo, hi + 1):
-        strat_targets[n] = t_1_5 if n <= 5 else t_6_10
-
-    counts_by_n: Dict[int, int] = defaultdict(int)
-    test_data: List[Any] = []
-    skipped_no_match = 0
-    tmp_out = out_pt + ".tmp"
-
-    def save_checkpoint():
-        os.makedirs(os.path.dirname(os.path.abspath(out_pt)) or ".", exist_ok=True)
-        torch.save(test_data, tmp_out)
-        os.replace(tmp_out, out_pt)
-
-    def targets_satisfied() -> bool:
-        if len(test_data) >= target_total_problems:
-            return True
-        return all(counts_by_n[n] >= strat_targets[n] for n in range(lo, hi + 1))
-
-    engine = open_engine(stockfish_path, threads=threads, hash_mb=hash_mb)
-
-    try:
-        for game_idx, pgn_text in enumerate(tqdm(df[pgn_col].dropna(), desc="Estrazione Held-Out")):
-            if targets_satisfied():
-                break
-
-            try:
-                game = chess.pgn.read_game(io.StringIO(pgn_text))
-            except Exception as e:
-                logger.debug(f"Partita {game_idx}: PGN illeggibile ({e}), salto.")
-                continue
-
-            if game is None:
-                continue
-
-            node = game
-            while node.variations:
-                if targets_satisfied():
-                    break
-
-                nxt = node.variation(0)
-                board = node.board()
-
-                try:
-                    info = engine.analyse(board, chess.engine.Limit(time=time_limit, mate=hi), multipv=1)
-                except chess.engine.EngineTerminatedError:
-                    logger.warning(f"Stockfish terminato alla partita {game_idx}, riavvio del processo motore.")
-                    try:
-                        engine.quit()
-                    except Exception:
-                        pass
-                    engine = open_engine(stockfish_path, threads=threads, hash_mb=hash_mb)
-                    node = nxt
-                    continue
-                except Exception as e:
-                    logger.debug(f"Partita {game_idx}, semimossa {node.ply()}: fallimento analisi ({e}).")
-                    node = nxt
-                    continue
-
-                score = info[0].get("score") if info else None
-                if score and score.relative.is_mate():
-                    mate_n = score.relative.mate()
-                    if mate_n is not None and lo <= mate_n <= hi:
-                        if counts_by_n[mate_n] >= strat_targets.get(mate_n, 9999):
-                            node = nxt
-                            continue
-
-                        pv = info[0].get("pv")
-                        engine_best_move = pv[0] if pv else None
-                        if not engine_best_move:
-                            node = nxt
-                            continue
-
-                        if require_move_match and nxt.move != engine_best_move:
-                            skipped_no_match += 1
-                            node = nxt
-                            continue
-
-                        legal = list(board.legal_moves)
-                        try:
-                            best_idx = legal.index(engine_best_move)
-                        except ValueError:
-                            node = nxt
-                            continue
-
-                        label = {"mate_n": mate_n, "best_move_idx": best_idx}
-                        data_item = GraphBuilder.board_to_pyg_data(board, clock_seconds=0.0, label=label)
-                        data_item.problem_id = f"chesscom_{game_idx}_{node.ply()}"
-                        data_item.mate_n = mate_n
-
-                        test_data.append(data_item)
-                        counts_by_n[mate_n] += 1
-
-                        if len(test_data) % checkpoint_every == 0:
-                            save_checkpoint()
-
-                node = nxt
-
-    finally:
-        try:
-            engine.quit()
-        except Exception:
-            pass
-
-    save_checkpoint()
-    dist_str = ", ".join(f"n={n}: {counts_by_n[n]}/{strat_targets[n]}" for n in sorted(strat_targets.keys()))
-    logger.info(f"Held-out completato: {len(test_data)} problemi salvati in {out_pt} (Distribuzione: {dist_str}).")
-    logger.info(f"Mosse discordanti scartate rispetto al motore: {skipped_no_match}")
-    return test_data
-
-
 def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
     if state.is_done(step_name) and is_ready_fn():
         logger.info(f"[SKIP] Step '{step_name}' gia' completato e verificato.")
@@ -333,47 +177,16 @@ def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
     logger.info(f"[DONE] Step '{step_name}' terminato con successo.")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Pipeline di preparazione dataset per Timed Graph Neural Network su scacchi."
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="config.yaml",
-        help="Percorso del file di configurazione YAML (default: config.yaml).",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Forza la riesecuzione azzerando lo stato della pipeline.",
-    )
-    parser.add_argument(
-        "--step",
-        type=str,
-        default=None,
-        choices=["time_stats", "games_pipeline", "decompress_puzzles", "build_puzzles", "merge_and_split", "external_holdout"],
-        help="Esegue solo uno step specifico della pipeline anziche' l'intero flusso.",
-    )
-    parser.add_argument(
-        "--stockfish-path",
-        type=str,
-        default=None,
-        help="Override del percorso dell'eseguibile Stockfish.",
-    )
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        default=None,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Override del livello di logging.",
-    )
-    return parser.parse_args()
+VALID_STEPS = [
+    "time_stats", "games_pipeline",
+    "decompress_puzzles", "build_puzzles", "merge_and_split", "external_holdout",
+]
+
+CONFIG_PATH = "config.yaml"
 
 
 def main():
-    args = parse_args()
-    cfg = load_yaml_config(args.config)
+    cfg = load_yaml_config(CONFIG_PATH)
     validate_config(cfg)
 
     pipe_cfg = cfg["pipeline"]
@@ -385,22 +198,29 @@ def main():
     split_cfg = cfg["splits"]
     holdout_cfg = cfg["external_holdout"]
 
-    log_level = args.log_level or pipe_cfg.get("log_level", "INFO")
+    log_level = pipe_cfg.get("log_level", "INFO")
     log_file = pipe_cfg.get("log_file")
     setup_logging(log_level, log_file)
 
-    stockfish_path = args.stockfish_path or engine_cfg["stockfish_path"]
+    step = pipe_cfg.get("step")
+    if step is not None and step not in VALID_STEPS:
+        raise PipelineConfigError(
+            f"'pipeline.step' non valido: '{step}'. Valori ammessi: {VALID_STEPS} oppure null/assente per l'intera pipeline."
+        )
+
+    stockfish_path = engine_cfg["stockfish_path"]
     dataset_dir = pipe_cfg.get("dataset_dir", "Dataset")
     puzzles_dir = os.path.join(dataset_dir, pipe_cfg.get("puzzles_subfolder", "puzzles"))
     merged_dir = os.path.join(dataset_dir, pipe_cfg.get("merged_subfolder", "Train"))
     holdout_dir = os.path.join(dataset_dir, pipe_cfg.get("holdout_subfolder", "Holdout"))
+    games_dir = os.path.join(dataset_dir, pipe_cfg.get("games_subfolder", "Games"))
 
-    for d in (dataset_dir, puzzles_dir, merged_dir, holdout_dir):
+    for d in (dataset_dir, puzzles_dir, merged_dir, holdout_dir, games_dir):
         os.makedirs(d, exist_ok=True)
 
     state_file = pipe_cfg.get("state_file", "pipeline_state.json")
     state_path = os.path.join(dataset_dir, state_file)
-    force = args.force or pipe_cfg.get("force_recompute", False)
+    force = pipe_cfg.get("force_recompute", False)
     if force and os.path.exists(state_path):
         logger.warning("Flag FORCE attivo: azzeramento stato precedente.")
         os.remove(state_path)
@@ -428,19 +248,20 @@ def main():
         stats = builder.build_and_save(time_stats_path)
         ctx["avg_time_by_rating"] = stats
 
-    if args.step is None or args.step == "time_stats":
+    if step is None or step == "time_stats":
         run_step(state, "time_stats", is_ready_fn=lambda: file_ready(time_stats_path), do_fn=_step_time_stats)
 
     if file_ready(time_stats_path) and "avg_time_by_rating" not in ctx:
         ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
 
     # Step 2: Pipeline partite Lichess -> grafi posizioni matto 1-5
+    
     games_paths = {
         "train": f"{os.path.splitext(games_output_base)[0]}_train.pt",
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
-
+    """
     def _step_games_pipeline():
         require_file(raw_cfg["games_zst"], "Archivio PGN mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
@@ -451,15 +272,12 @@ def main():
 
             mate_range=mate_train_range,
 
-            # analysis_time ha priorita' su search_depth (vedi _analyse_position).
-            # search_depth resta come fallback se analysis_time=None.
             search_depth=games_cfg.get("search_depth", 6),
             analysis_time=games_cfg.get("time_limit_seconds", 0.15),
 
             max_games=games_cfg.get("max_games", 180000),
+            skip_games=games_cfg.get("skip_games", 0),
 
-            # Importante:
-            # molti processi, un solo thread Stockfish per processo
             workers=games_cfg.get("workers", 8),
             threads=1,
 
@@ -472,24 +290,27 @@ def main():
             require_clock=False,
             min_ply=16,
 
-            # Filtri di velocizzazione pre-Stockfish.
             max_piece_count=games_cfg.get("max_piece_count", 18),
             only_decisive_games=games_cfg.get("only_decisive_games", True),
             skip_time_forfeit=games_cfg.get("skip_time_forfeit", True),
             ply_sample_step=games_cfg.get("ply_sample_step", 3),
             max_positions_per_game=games_cfg.get("max_positions_per_game", 20),
+
+            syzygy_path=engine_cfg.get("syzygy_path"),
+            min_material_for_mate_attempt=games_cfg.get("min_material_for_mate_attempt", 4),
         )
         splits, paths = pipeline.run()
         ctx["games_splits"] = splits
         ctx["games_paths"] = paths
 
-    if args.step is None or args.step == "games_pipeline":
+    if step is None or step == "games_pipeline":
         run_step(
             state,
             "games_pipeline",
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
             do_fn=_step_games_pipeline,
         )
+    """
 
     # Step 3: Decompressione puzzle Lichess
     def _step_decompress_puzzles():
@@ -499,7 +320,7 @@ def main():
             chunk_size=puzzle_cfg.get("chunk_size_bytes", 1024 * 1024),
         )
 
-    if args.step is None or args.step == "decompress_puzzles":
+    if step is None or step == "decompress_puzzles":
         run_step(
             state,
             "decompress_puzzles",
@@ -526,7 +347,7 @@ def main():
         )
         ctx["puzzle_splits"] = splits
 
-    if args.step is None or args.step == "build_puzzles":
+    if step is None or step == "build_puzzles":
         run_step(
             state,
             "build_puzzles",
@@ -557,7 +378,7 @@ def main():
             out_dir=merged_dir,
         )
 
-    if args.step is None or args.step == "merge_and_split":
+    if step is None or step == "merge_and_split":
         run_step(
             state,
             "merge_and_split",
@@ -567,7 +388,7 @@ def main():
 
     # Step 6: Held-out esterno stratificato (n=1..10 per valutazione comparativa e profondita)
     def _step_holdout():
-        build_external_holdout(
+        builder = ExternalHoldoutBuilder(
             external_csv=raw_cfg["external_csv"],
             stockfish_path=stockfish_path,
             out_pt=holdout_path,
@@ -581,9 +402,20 @@ def main():
             hash_mb=engine_cfg.get("hash_mb", 256),
             require_move_match=holdout_cfg.get("require_move_match", True),
             checkpoint_every=holdout_cfg.get("checkpoint_every", 50),
+            workers=holdout_cfg.get("workers"),
+            chunk_games=holdout_cfg.get("chunk_games", 200),
+            config_error_cls=PipelineConfigError,
+            min_ply=holdout_cfg.get("min_ply", 0),
+            ply_sample_step=holdout_cfg.get("ply_sample_step", 3),
+            max_piece_count=holdout_cfg.get("max_piece_count", 18),
+            candidate_min_legal_moves=holdout_cfg.get("candidate_min_legal_moves", 1),
+            candidate_max_legal_moves=holdout_cfg.get("candidate_max_legal_moves"),
+            skip_if_in_check=holdout_cfg.get("skip_if_in_check", False),
+            pool_join_timeout=holdout_cfg.get("pool_join_timeout", 15.0),
         )
+        builder.run()
 
-    if args.step is None or args.step == "external_holdout":
+    if step is None or step == "external_holdout":
         run_step(
             state,
             "external_holdout",

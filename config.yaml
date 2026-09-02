@@ -8,15 +8,20 @@ pipeline:
   puzzles_subfolder: "puzzles"
   merged_subfolder: "Train"      # output finale train/val/test -> Dataset/Train
   holdout_subfolder: "Holdout"   # output esterno mate 1-10    -> Dataset/Holdout
+  games_subfolder: "Games"       # output unione part1+part2   -> Dataset/Games
   state_file: "pipeline_state.json"
   log_file: "pipeline.log"
   log_level: "INFO"
   force_recompute: false
-
+  step: null           
+                                  
 engine:
   stockfish_path: "/usr/games/stockfish"
-  threads: 2
+  threads: 3
   hash_mb: 256
+  syzygy_path: null                # cartella file Syzygy .rtbw/.rtbz (es. 3-4-5 pezzi).
+                                    # null = screening Syzygy disattivato, nessun impatto.
+                                    # Se valorizzata, va scaricata a parte (non inclusa in nessuna libreria).
 
 raw_data:
   games_zst: "DatasetCreator/RawData/lichess_db_standard_rated_2020-01.pgn.zst"
@@ -29,17 +34,22 @@ time_stats:
   output_filename: "avg_time_by_rating.json"
 
 games_pipeline:
-  max_games: 100000               # Allineato al campionamento raccomandato nella specifica (~100k)
+  max_games: 200000                # run singolo: prime 200k partite (era 100k+100k su due run)
+  skip_games_part1: 0               # partite da saltare nel run base (0 = parte dall'inizio del file)
   mate_range_min: 1
   mate_range_max: 5
   search_depth: 6                 # ridotto da 10: mate 1-5 non richiede profondita' alta
   time_limit_seconds: 0.15        # ha priorita' su search_depth (analysis_time)
   max_piece_count: 18             # scarta posizioni affollate pre-Stockfish
+  min_material_for_mate_attempt: 4  # scarta pre-Stockfish se il lato di turno ha meno
+                                     # di questo materiale (Q=9,R=5,B/N=3,P=1, re escluso)
   only_decisive_games: true       # scarta patte (mai producono mate)
   skip_time_forfeit: true         # scarta vittorie per tempo scaduto
   ply_sample_step: 3              # analizza 1 posizione ogni 3 ply (non tutte)
   max_positions_per_game: 20      # cap duro sul numero di chiamate Stockfish/partita
   output_base_filename: "games.pt"
+  output_base_filename_part2: "games_part2.pt"  # output del run games_pipeline_part2 (non usato in modalita' single-run)
+  skip_games: 100000               # usato solo da games_pipeline_part2, irrilevante se non lanci quello step
 
 puzzle_pipeline:
   max_puzzles: 100000
@@ -58,11 +68,13 @@ external_holdout:
   mate_range_max: 10
   time_limit_seconds: 0.3
   pgn_col: "pgn"
-  max_games_to_scan: 1500
+  max_games_to_scan: 3000
   target_total_problems: 200      # Target complessivo raccomandato (100-200)
   stratification:
     n_1_to_5_target_each: 30      # 30 campioni ciascuno per n=1..5 (totale 150)
     n_6_to_10_target_each: 10     # 10 campioni ciascuno per n=6..10 (totale 50)
   require_move_match: true
   checkpoint_every: 50
+  workers: null                   # null -> os.cpu_count()-1, come games_pipeline
+  chunk_games: 200                # partite per chunk sottomesso al Pool (early-stop granularity)
   output_filename: "external_holdout.pt"
