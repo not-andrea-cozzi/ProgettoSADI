@@ -18,13 +18,18 @@ def group_puzzle_sequences(puzzle_data_list):
     for d in puzzle_data_list:
         pid = getattr(d, "puzzle_id", None)
         if pid is None:
+            pid = getattr(d, "problem_id", None)
+        if pid is None:
             continue
+        # puzzle_id potrebbe essere una lista → convertiamo in stringa hashable
+        if isinstance(pid, list):
+            pid = tuple(pid) if len(pid) > 1 else pid[0]
         by_puzzle.setdefault(pid, []).append(d)
 
     sequences = []
     for plies in by_puzzle.values():
         plies_sorted = sorted(
-            plies, 
+            plies,
             key=lambda d: getattr(d, "ply", getattr(d, "move_idx", 0))
         )
         sequences.append(plies_sorted)
@@ -32,7 +37,6 @@ def group_puzzle_sequences(puzzle_data_list):
 
 
 class PuzzleSequenceDataset(Dataset):
-
     def __init__(self, puzzle_data_list):
         self.sequences = group_puzzle_sequences(puzzle_data_list)
 
@@ -46,22 +50,19 @@ class PuzzleSequenceDataset(Dataset):
 def timed_collate_fn(batch_of_sequences):
     flat_positions = []
     chain_src, chain_dst, chain_dt = [], [], []
-
     running_idx = 0
+
     for sequence in batch_of_sequences:
         for i, d in enumerate(sequence):
             flat_positions.append(d)
             if i > 0:
-                # Se presente, usa il valore scalare non compresso; altrimenti inverte la normalizzazione
                 if hasattr(d, "clock_seconds") and d.clock_seconds is not None:
                     dt = float(d.clock_seconds)
                 else:
                     dt = _clock_seconds_from_norm(d.x[0, 3].item())
-
                 chain_src.append(running_idx + i - 1)
                 chain_dst.append(running_idx + i)
                 chain_dt.append(max(0.0, dt))
-
         running_idx += len(sequence)
 
     inner_batch = Batch.from_data_list(flat_positions)

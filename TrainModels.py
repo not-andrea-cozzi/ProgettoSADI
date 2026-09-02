@@ -275,14 +275,23 @@ def main():
     )
 
     metrics_logger = TrainingMetricsLogger(output_dir=cfg.results_dir)
+    timed_model = TimedPolicyGNN(
+        hidden_dim=cfg.hidden_dim, num_layers=cfg.num_layers,
+        lambda_decay=cfg.lambda_decay, use_time=True,
+          ).to(device)
+    ckpt = torch.load(os.path.join(cfg.checkpoint_dir, "timed_best.pt"), map_location=device, weights_only=False)
+    timed_model.load_state_dict(ckpt["model_state"])
+    timed_m_acc = ckpt["best_val_move_acc"]
+    timed_mate_acc = ckpt["best_val_mate_acc"]
 
-    timed_model, timed_m_acc, timed_mate_acc = train_one_config(
-        True, train_loader, val_loader, device, cfg, metrics_logger
-    )
-    untimed_model, untimed_m_acc, untimed_mate_acc = train_one_config(
-        False, train_loader, val_loader, device, cfg, metrics_logger
-    )
-
+    untimed_model = TimedPolicyGNN(
+        hidden_dim=cfg.hidden_dim, num_layers=cfg.num_layers,
+        lambda_decay=cfg.lambda_decay, use_time=False,
+    ).to(device)
+    ckpt = torch.load(os.path.join(cfg.checkpoint_dir, "untimed_best.pt"), map_location=device, weights_only=False)
+    untimed_model.load_state_dict(ckpt["model_state"])
+    untimed_m_acc = ckpt["best_val_move_acc"]
+    untimed_mate_acc = ckpt["best_val_mate_acc"]
     logger.info("Salvataggio delle metriche di training e generazione dei plot comparativi...")
     metrics_logger.save_metrics_to_disk()
     metrics_logger.plot_training_curves()

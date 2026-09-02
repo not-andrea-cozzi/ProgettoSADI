@@ -8,7 +8,20 @@ import torch
 from torch.utils.data import DataLoader
 
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-from TrainModels import _argmax_per_graph
+
+
+def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
+    best_score = scores.new_full((num_graphs,), float("-inf"))
+    best_score.scatter_reduce_(0, edge_batch, scores, reduce="amax", include_self=True)
+
+    is_best = scores == best_score[edge_batch]
+    idx_range = torch.arange(scores.size(0), device=scores.device)
+    sentinel = scores.size(0) + 1
+    masked = torch.where(is_best, idx_range, torch.full_like(idx_range, sentinel))
+
+    argmax_global = torch.full((num_graphs,), sentinel, dtype=torch.long, device=scores.device)
+    argmax_global.scatter_reduce_(0, edge_batch, masked, reduce="amin", include_self=True)
+    return argmax_global
 
 
 class TrainingMetricsLogger:

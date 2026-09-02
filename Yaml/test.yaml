@@ -1,12 +1,12 @@
 data_dir: "Dataset/Train"
-checkpoint_dir: "Dataset/Checkpoints"
+checkpoint_dir: "Modelli/Checkpoints"
 plots_dir: "Modello/Plots_Test"
 out_dir: "Modello/Results_Test"
 
-batch_size: 32
-num_workers: 4
+batch_size: 64
+num_workers: 6
 hidden_dim: 128
-num_layers: 4
+num_layers: 6
 lambda_decay: 0.01
 mate_loss_weight: 0.3
 num_mate_classes: 11      # Classi 0..10 per MAX_MATE_N = 10

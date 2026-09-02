@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import global_mean_pool
 from Training_TestModel.timegnn.models.gat_time_decay import TimeAwareGATConv
-from Training.PolicyGNN import GraphEncoder, MAX_MATE_N
+from Training_TestModel.PolicyGNN import GraphEncoder, MAX_MATE_N
 
 
 class TimeChainRefiner(nn.Module):

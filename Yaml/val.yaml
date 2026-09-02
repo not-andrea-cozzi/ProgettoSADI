@@ -1,11 +1,11 @@
 holdout_path: "Dataset/Holdout/external_holdout.pt"
-checkpoint_dir: "Dataset/Checkpoints"
+checkpoint_dir: "Modelli/Checkpoints"
 plots_dir: "Modello/Plots_HeldOut"
 out_dir: "Modello/Results_HeldOut"
 
 # --- Parametri GNN ---
 hidden_dim: 128
-num_layers: 4
+num_layers: 6
 lambda_decay: 0.01
 batch_size: 1
 num_workers: 0

@@ -1,7 +1,7 @@
 import csv
 import logging
 import os
-from typing import Dict, Tuple
+from typing import Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -14,6 +14,15 @@ logger = logging.getLogger("evaluator_plotter")
 class EvaluatorPlotter:
     """
     Classe helper per calcolare metriche e generare grafici/CSV per la valutazione dei modelli.
+    Accetta i risultati nel formato flat prodotto da evaluate() in TestModels.py:
+        {
+            "move_correct": np.ndarray[bool],
+            "mate_correct": np.ndarray[bool],
+            "mate_true":    np.ndarray[int],
+            "mate_pred":    np.ndarray[int],
+            "mate_n":       np.ndarray[int],
+            ...
+        }
     """
 
     def __init__(self, plots_dir: str, out_dir: str):
@@ -23,49 +32,38 @@ class EvaluatorPlotter:
         os.makedirs(self.out_dir, exist_ok=True)
 
     @staticmethod
-    def per_mate_depth_metrics(results: dict, max_n: int = 10) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Calcola accuracy, totale ed esatti per ogni n (profondità di matto)."""
-        mate_true = results["mate_true"]
-        move_c = results["move_correct"]
-
-        depths = np.arange(1, max_n + 1)
-        accs = np.full(max_n, np.nan)
+    def _extract_depth_arrays(
+        results: dict, max_n: int = 10
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Stratifica i risultati flat per profondità di matto (n).
+        Depths coprono l'intervallo [0, max_n - 1].
+        Ritorna: (depths, move_accs, mate_accs, counts, corrects_move)
+        """
+        depths = np.arange(0, max_n)
+        move_accs = np.full(max_n, np.nan)
+        mate_accs = np.full(max_n, np.nan)
         counts = np.zeros(max_n, dtype=np.int64)
-        corrects = np.zeros(max_n, dtype=np.int64)
+        corrects_move = np.zeros(max_n, dtype=np.int64)
+
+        mate_n = results.get("mate_n")
+        move_correct = results.get("move_correct")
+        mate_correct = results.get("mate_correct")
+
+        if mate_n is None or len(mate_n) == 0:
+            return depths, move_accs, mate_accs, counts, corrects_move
 
         for i, d in enumerate(depths):
-            mask = mate_true == d
-            counts[i] = mask.sum()
-            if counts[i] > 0:
-                corrects[i] = move_c[mask].sum()
-                accs[i] = corrects[i] / counts[i]
+            mask = (mate_n == d)
+            c = int(mask.sum())
+            counts[i] = c
+            if c > 0:
+                mc = int(move_correct[mask].sum())
+                corrects_move[i] = mc
+                move_accs[i] = mc / c
+                mate_accs[i] = float(mate_correct[mask].mean())
 
-        return depths, accs, counts, corrects
-
-    @staticmethod
-    def per_rating_metrics(results: dict, bin_edges: np.ndarray) -> Dict[str, np.ndarray]:
-        """Calcola le metriche suddivise per fascia di rating."""
-        rating = results["rating"]
-        move_c = results["move_correct"]
-        mate_c = results["mate_correct"]
-
-        if rating is None or len(rating) == 0:
-            return {}
-
-        idx = np.digitize(rating, bin_edges) - 1
-        idx = np.clip(idx, 0, len(bin_edges) - 2)
-
-        n_bins = len(bin_edges) - 1
-        n = np.zeros(n_bins, dtype=np.int64)
-        move_acc = np.full(n_bins, np.nan)
-        mate_acc = np.full(n_bins, np.nan)
-        for b in range(n_bins):
-            mask = idx == b
-            n[b] = mask.sum()
-            if n[b] > 0:
-                move_acc[b] = move_c[mask].mean()
-                mate_acc[b] = mate_c[mask].mean()
-        return {"n": n, "move_acc": move_acc, "mate_acc": mate_acc}
+        return depths, move_accs, mate_accs, counts, corrects_move
 
     # -------------------------------------------------------------------------
     # METODI DI PLOTTING E SALVATAGGIO
@@ -73,26 +71,29 @@ class EvaluatorPlotter:
 
     def plot_depth_bars(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "bars_per_n.png"):
         """Plot 1: Barre verticali per vedere risposte giuste / totale per ogni n."""
-        depths, acc_t, counts, corrects_t = self.per_mate_depth_metrics(res_t, max_n=max_n)
-        _, acc_u, _, corrects_u = self.per_mate_depth_metrics(res_u, max_n=max_n)
+        depths, acc_t, _, counts, corrects_t = self._extract_depth_arrays(res_t, max_n)
+        _, acc_u, _, _, corrects_u = self._extract_depth_arrays(res_u, max_n)
 
         width = 0.35
         x = np.arange(len(depths))
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        rects1 = ax.bar(x - width / 2, acc_t * 100, width, label="Timed", color="royalblue")
-        rects2 = ax.bar(x + width / 2, acc_u * 100, width, label="Untimed", color="coral")
+        # Sostituisco i NaN con 0 solo per il plotting
+        acc_t_plot = np.nan_to_num(acc_t, nan=0.0)
+        acc_u_plot = np.nan_to_num(acc_u, nan=0.0)
+
+        rects1 = ax.bar(x - width / 2, acc_t_plot * 100, width, label="Timed", color="royalblue")
+        rects2 = ax.bar(x + width / 2, acc_u_plot * 100, width, label="Untimed", color="coral")
 
         ax.set_xticks(x)
         ax.set_xticklabels([f"n={d}" for d in depths])
         ax.set_ylabel("Accuracy (%)")
         ax.set_xlabel("Profondità di matto (n)")
         ax.set_title("Risposte Giuste / Totale per ogni n")
-        ax.set_ylim(0, 115)  # Spazio superiore per le etichette di testo
+        ax.set_ylim(0, 115)
         ax.legend()
         ax.grid(axis="y", linestyle=":", alpha=0.6)
 
-        # Aggiunta etichette (es. 45/50) sopra le barre
         for i, rect in enumerate(rects1):
             if counts[i] > 0:
                 ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() + 2,
@@ -111,8 +112,8 @@ class EvaluatorPlotter:
 
     def plot_depth_curves(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "curves_per_n.png"):
         """Plot 2: Curve di accuracy al variare di n."""
-        depths, acc_t, _, _ = self.per_mate_depth_metrics(res_t, max_n=max_n)
-        _, acc_u, _, _ = self.per_mate_depth_metrics(res_u, max_n=max_n)
+        depths, acc_t, _, _, _ = self._extract_depth_arrays(res_t, max_n)
+        _, acc_u, _, _, _ = self._extract_depth_arrays(res_u, max_n)
 
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.plot(depths, acc_t * 100, marker="o", label="Timed", color="royalblue")
@@ -131,9 +132,9 @@ class EvaluatorPlotter:
         logger.info(f"Salvato {out_path}")
 
     def save_depth_metrics(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "metrics_per_n.csv"):
-        """Plot 3 (Metriche): Salvataggio su file CSV dei dati esatti divisi per n."""
-        depths, acc_t, counts, corrects_t = self.per_mate_depth_metrics(res_t, max_n=max_n)
-        _, acc_u, _, corrects_u = self.per_mate_depth_metrics(res_u, max_n=max_n)
+        """Salvataggio su file CSV dei dati esatti divisi per n."""
+        depths, acc_t, mate_acc_t, counts, corrects_t = self._extract_depth_arrays(res_t, max_n)
+        _, acc_u, mate_acc_u, _, corrects_u = self._extract_depth_arrays(res_u, max_n)
 
         out_path = os.path.join(self.out_dir, filename)
         with open(out_path, "w", newline="") as f:
@@ -147,22 +148,40 @@ class EvaluatorPlotter:
                 ])
         logger.info(f"Salvato {out_path}")
 
-    # --- Altri plot ausiliari ---
-
     def plot_aggregate_bars(self, res_t: dict, res_u: dict, filename: str = "aggregate_bars.png"):
+        """Barre aggregate move_acc e mate_acc globali, calcolate come media pesata sui conteggi."""
+        _, move_t, mate_t, counts_t, _ = self._extract_depth_arrays(res_t)
+        _, move_u, mate_u, counts_u, _ = self._extract_depth_arrays(res_u)
+
+        total = counts_t.sum()
+        if total == 0:
+            logger.warning("Nessun campione per il plot aggregato.")
+            return
+
+        # Media pesata per conteggio (ignorando i NaN)
+        valid_t = ~np.isnan(move_t)
+        valid_u = ~np.isnan(move_u)
+
+        global_move_t = np.average(move_t[valid_t], weights=counts_t[valid_t]) if valid_t.any() else 0.0
+        global_mate_t = np.average(mate_t[valid_t], weights=counts_t[valid_t]) if valid_t.any() else 0.0
+        global_move_u = np.average(move_u[valid_u], weights=counts_u[valid_u]) if valid_u.any() else 0.0
+        global_mate_u = np.average(mate_u[valid_u], weights=counts_u[valid_u]) if valid_u.any() else 0.0
+
         metrics = ["move_acc", "mate_acc"]
         x = np.arange(len(metrics))
         width = 0.35
         fig, ax = plt.subplots(figsize=(6, 4.5))
-        vals_t = [res_t[m] for m in metrics]
-        vals_u = [res_u[m] for m in metrics]
+
+        vals_t = [global_move_t, global_mate_t]
+        vals_u = [global_move_u, global_mate_u]
+
         ax.bar(x - width / 2, vals_t, width, label="Timed", color="royalblue")
         ax.bar(x + width / 2, vals_u, width, label="Untimed", color="coral")
         ax.set_xticks(x)
         ax.set_xticklabels(metrics)
         ax.set_ylim(0, 1)
         ax.set_ylabel("Accuracy")
-        ax.set_title(f"Test set — Timed vs Untimed (N={res_t['n']})")
+        ax.set_title(f"Test set — Timed vs Untimed (N={total})")
         for i, (vt, vu) in enumerate(zip(vals_t, vals_u)):
             ax.text(i - width / 2, vt + 0.01, f"{vt:.3f}", ha="center", fontsize=9)
             ax.text(i + width / 2, vu + 0.01, f"{vu:.3f}", ha="center", fontsize=9)

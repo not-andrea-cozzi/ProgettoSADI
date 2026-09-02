@@ -83,6 +83,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
     mate_correct_flags: List[np.ndarray] = []
     mate_true_all: List[np.ndarray] = []
     mate_pred_all: List[np.ndarray] = []
+    mate_n_all: List[np.ndarray] = []
     rating_all: List[np.ndarray] = []
     has_rating = True
 
@@ -113,6 +114,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
             mate_correct_flags.append(mate_correct)
             mate_true_all.append(mate_target.cpu().numpy())
             mate_pred_all.append(mate_pred.cpu().numpy())
+            mate_n_all.append(mate_target.cpu().numpy())
 
             if has_rating:
                 if hasattr(inner_batch, "rating") and inner_batch.rating is not None:
@@ -128,6 +130,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
     mate_correct_np = np.concatenate(mate_correct_flags) if mate_correct_flags else np.array([])
     mate_true_np = np.concatenate(mate_true_all) if mate_true_all else np.array([])
     mate_pred_np = np.concatenate(mate_pred_all) if mate_pred_all else np.array([])
+    mate_n_np = np.concatenate(mate_n_all) if mate_n_all else np.array([])
     rating_np = np.concatenate(rating_all) if (has_rating and rating_all) else None
 
     return {
@@ -139,6 +142,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
         "mate_correct": mate_correct_np,
         "mate_true": mate_true_np,
         "mate_pred": mate_pred_np,
+        "mate_n": mate_n_np,
         "rating": rating_np,
     }
 

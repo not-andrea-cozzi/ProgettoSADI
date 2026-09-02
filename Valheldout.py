@@ -55,43 +55,6 @@ def load_config(config_path: str = "Yaml/val.yaml") -> SimpleNamespace:
     return SimpleNamespace(**raw)
 
 
-_DEFAULT_VAL_YAML = """\
-holdout_path: "Dataset/Holdout/external_holdout.pt"
-checkpoint_dir: "Dataset/Checkpoints"
-plots_dir: "Modello/Plots_HeldOut"
-out_dir: "Modello/Results_HeldOut"
-
-hidden_dim: 128
-num_layers: 4
-lambda_decay: 0.01
-batch_size: 1
-num_workers: 0
-num_mate_classes: 11
-max_mate_depth_eval: 10
-
-# --- LLM (Groq, OpenAI-compatible) ---
-llm_enabled: true
-llm_provider: "groq"
-llm_base_url: "https://api.groq.com/openai/v1/chat/completions"
-llm_model: "openai/gpt-oss-20b"
-llm_api_key_env: "GROQ_API_KEY"
-llm_temperature: 0.0
-llm_max_tokens: 32
-llm_timeout_seconds: 30
-llm_max_retries: 3
-llm_retry_backoff_seconds: 2.0
-llm_request_delay_seconds: 0.0
-"""
-
-
-def ensure_val_yaml(config_path: str) -> None:
-    if os.path.exists(config_path):
-        return
-    os.makedirs(os.path.dirname(os.path.abspath(config_path)) or ".", exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
-        f.write(_DEFAULT_VAL_YAML)
-    logger.warning(f"{config_path} non trovato: creato con valori di default. Rivedilo e rilancia lo script.")
-
 
 def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
     best_score = scores.new_full((num_graphs,), float("-inf"))
@@ -525,7 +488,7 @@ def plot_three_way_bars(rows: List[Dict[str, Any]], plots_dir: str, max_n: int =
 
     ax.bar(r1, timed_acc, color="royalblue", width=width, edgecolor="grey", label="Timed GNN")
     ax.bar(r2, untimed_acc, color="coral", width=width, edgecolor="grey", label="Untimed GNN")
-    ax.bar(r3, llm_acc, color="mediumseagreen", width=width, edgecolor="grey", label="LLM (Groq)")
+    ax.bar(r3, llm_acc, color="mediumseagreen", width=width, edgecolor="grey", label="LLM (gpt-oss-20b)")
 
     ax.set_xticks([x + width for x in r1])
     ax.set_xticklabels([f"Mate in {n}" for n in n_values])
@@ -583,7 +546,6 @@ def plot_three_way_aggregate(rows: List[Dict[str, Any]], plots_dir: str,
 
 def main():
     config_path = os.environ.get("VAL_HELDOUT_CONFIG", "Yaml/val.yaml")
-    ensure_val_yaml(config_path)
     cfg = load_config(config_path)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
