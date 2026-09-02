@@ -4,14 +4,14 @@ time_stats_json: "Dataset/avg_time_by_rating.json"
 checkpoint_dir: "Modelli/Checkpoints"
 results_dir: "Modelli/Results"
 
-epochs: 30
-batch_size: 24
+epochs: 100
+batch_size: 32
 lr: 0.001
 hidden_dim: 128
-num_layers: 4
+num_layers: 6
 lambda_decay: 0.01
 mate_loss_weight: 0.3
-patience: 5
+patience: 7
 num_workers: 4
 seed: 42
 grad_clip: 1.0

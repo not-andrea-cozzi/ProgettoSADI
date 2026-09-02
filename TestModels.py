@@ -3,20 +3,17 @@ import logging
 import os
 import sys
 from types import SimpleNamespace
-from typing import Dict, List, Tuple
+from typing import List
 import yaml
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-import matplotlib
-matplotlib.use("Agg") 
-import matplotlib.pyplot as plt
-
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
 from Training_TestModel.TimeChainGnn import TimedPolicyGNN
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from Training_TestModel.EvaluatorPlotter import EvaluatorPlotter
 
 
 def load_config(config_path: str = "test.yaml") -> SimpleNamespace:
@@ -146,147 +143,6 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
     }
 
 
-def per_rating_metrics(results: dict, bin_edges: np.ndarray) -> Dict[str, np.ndarray]:
-    rating = results["rating"]
-    move_c = results["move_correct"]
-    mate_c = results["mate_correct"]
-
-    if rating is None or len(rating) == 0:
-        return {}
-
-    idx = np.digitize(rating, bin_edges) - 1
-    idx = np.clip(idx, 0, len(bin_edges) - 2)
-
-    n_bins = len(bin_edges) - 1
-    n = np.zeros(n_bins, dtype=np.int64)
-    move_acc = np.full(n_bins, np.nan)
-    mate_acc = np.full(n_bins, np.nan)
-    for b in range(n_bins):
-        mask = idx == b
-        n[b] = mask.sum()
-        if n[b] > 0:
-            move_acc[b] = move_c[mask].mean()
-            mate_acc[b] = mate_c[mask].mean()
-    return {"n": n, "move_acc": move_acc, "mate_acc": mate_acc}
-
-
-def per_mate_depth_metrics(results: dict, max_n: int = 10) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    mate_true = results["mate_true"]
-    move_c = results["move_correct"]
-    
-    depths = np.arange(1, max_n + 1)
-    accs = np.full(max_n, np.nan)
-    counts = np.zeros(max_n, dtype=np.int64)
-    
-    for i, d in enumerate(depths):
-        mask = mate_true == d
-        counts[i] = mask.sum()
-        if counts[i] > 0:
-            accs[i] = move_c[mask].mean()
-            
-    return depths, accs, counts
-
-
-def plot_aggregate_bars(res_t: dict, res_u: dict, out_path: str):
-    metrics = ["move_acc", "mate_acc"]
-    x = np.arange(len(metrics))
-    width = 0.35
-    fig, ax = plt.subplots(figsize=(6, 4.5))
-    vals_t = [res_t[m] for m in metrics]
-    vals_u = [res_u[m] for m in metrics]
-    ax.bar(x - width / 2, vals_t, width, label="Timed", color="royalblue")
-    ax.bar(x + width / 2, vals_u, width, label="Untimed", color="coral")
-    ax.set_xticks(x)
-    ax.set_xticklabels(metrics)
-    ax.set_ylim(0, 1)
-    ax.set_ylabel("Accuracy")
-    ax.set_title(f"Test set — Timed vs Untimed (N={res_t['n']})")
-    for i, (vt, vu) in enumerate(zip(vals_t, vals_u)):
-        ax.text(i - width / 2, vt + 0.01, f"{vt:.3f}", ha="center", fontsize=9)
-        ax.text(i + width / 2, vu + 0.01, f"{vu:.3f}", ha="center", fontsize=9)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Salvato {out_path}")
-
-
-def plot_per_rating(bin_centers, pr_t, pr_u, metric_key: str, ylabel: str, title: str, out_path: str):
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.plot(bin_centers, pr_t[metric_key], marker="o", label="Timed", color="royalblue")
-    ax.plot(bin_centers, pr_u[metric_key], marker="s", label="Untimed", color="coral")
-    ax.set_xlabel("Rating puzzle (centro fascia)")
-    ax.set_ylabel(ylabel)
-    ax.set_ylim(0, 1)
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Salvato {out_path}")
-
-
-def plot_rating_histogram(rating: np.ndarray, bin_edges: np.ndarray, out_path: str):
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.hist(rating, bins=bin_edges, edgecolor="black", color="skyblue")
-    ax.set_xlabel("Rating puzzle")
-    ax.set_ylabel("Numero posizioni")
-    ax.set_title("Distribuzione test set per fascia rating")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Salvato {out_path}")
-
-
-def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int, title: str, out_path: str):
-    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
-    for t, p in zip(y_true, y_pred):
-        if int(t) < num_classes and int(p) < num_classes:
-            cm[int(t), int(p)] += 1
-    row_sums = cm.sum(axis=1, keepdims=True)
-    cm_norm = np.divide(cm, row_sums, out=np.zeros_like(cm, dtype=float), where=row_sums != 0)
-
-    fig, ax = plt.subplots(figsize=(7, 6))
-    im = ax.imshow(cm_norm, cmap="Blues", vmin=0, vmax=1)
-    ax.set_xlabel("Mate-in-N predetto")
-    ax.set_ylabel("Mate-in-N reale")
-    ax.set_title(title)
-    ax.set_xticks(range(num_classes))
-    ax.set_yticks(range(num_classes))
-    for i in range(num_classes):
-        for j in range(num_classes):
-            if cm[i, j] > 0:
-                ax.text(j, i, f"{cm_norm[i, j]:.2f}",
-                        ha="center", va="center",
-                        color="white" if cm_norm[i, j] > 0.5 else "black",
-                        fontsize=7)
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Frazione (row-normalized)")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Salvato {out_path}")
-
-
-def plot_per_mate_depth(depths, acc_t, acc_u, out_path: str):
-    width = 0.35
-    x = np.arange(len(depths))
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.bar(x - width / 2, acc_t * 100, width, label="Timed GNN", color="royalblue")
-    ax.bar(x + width / 2, acc_u * 100, width, label="Untimed GNN", color="coral")
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"Mate in {d}" for d in depths])
-    ax.set_ylabel("Move Accuracy (%)")
-    ax.set_xlabel("Profondità di matto (n)")
-    ax.set_title("Accuratezza di mossa per profondità di matto (n=1..10)")
-    ax.legend()
-    ax.grid(axis="y", linestyle=":", alpha=0.6)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
-    logger.info(f"Salvato {out_path}")
-
-
 def main():
     cfg = CONFIG
 
@@ -298,8 +154,8 @@ def main():
     else:
         logger.warning("CUDA non disponibile: esecuzione su CPU.")
 
-    os.makedirs(cfg.plots_dir, exist_ok=True)
-    os.makedirs(cfg.out_dir, exist_ok=True)
+    # Inizializzazione della classe Plotter Esterna
+    plotter = EvaluatorPlotter(plots_dir=cfg.plots_dir, out_dir=cfg.out_dir)
 
     logger.info("Caricamento merged_test.pt...")
     test_positions = load_test_split(cfg.data_dir)
@@ -329,6 +185,7 @@ def main():
     logger.info(f"[Untimed] Loss={res_u['loss']:.4f} | Move Acc={res_u['move_acc']*100:.2f}% | "
                 f"Mate Acc={res_u['mate_acc']*100:.2f}% | N={res_u['n']}")
 
+    # Salvataggio CSV generale delle metriche
     csv_path = os.path.join(cfg.out_dir, "test_metrics.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -339,63 +196,25 @@ def main():
                     f"{res_u['move_acc']:.6f}", f"{res_u['mate_acc']:.6f}"])
     logger.info(f"Salvato {csv_path}")
 
-    report_path = os.path.join(cfg.out_dir, "test_report.txt")
-    with open(report_path, "w") as f:
-        f.write("=== Report Test Set — TimedPolicyGNN vs Untimed ===\n\n")
-        f.write(f"Totale posizioni valutate: {res_t['n']}\n\n")
-        f.write(f"{'Metrica':<12}{'Timed':>12}{'Untimed':>12}{'Delta':>12}\n")
-        for m in ["loss", "move_acc", "mate_acc"]:
-            delta = res_t[m] - res_u[m]
-            f.write(f"{m:<12}{res_t[m]:>12.4f}{res_u[m]:>12.4f}{delta:>+12.4f}\n")
-    logger.info(f"Salvato {report_path}")
+    # =========================================================================
+    # GENERAZIONE DEI PLOT E DELLE METRICHE RICHIESTE
+    # =========================================================================
 
-    plot_aggregate_bars(res_t, res_u, os.path.join(cfg.plots_dir, "aggregate_bars.png"))
+    # 1. Barre verticali con testo (corrette / totale) per ogni n
+    plotter.plot_depth_bars(res_t, res_u, max_n=10, filename="bars_per_n.png")
 
-    depths, acc_t_depth, _ = per_mate_depth_metrics(res_t, max_n=10)
-    _, acc_u_depth, _ = per_mate_depth_metrics(res_u, max_n=10)
-    plot_per_mate_depth(depths, acc_t_depth, acc_u_depth, os.path.join(cfg.plots_dir, "per_mate_depth_move.png"))
+    # 2. Curve per ogni n
+    plotter.plot_depth_curves(res_t, res_u, max_n=10, filename="curves_per_n.png")
 
-    if res_t["rating"] is not None and len(res_t["rating"]) > 0:
-        bin_edges = np.arange(cfg.rating_min, cfg.rating_max + 1, cfg.rating_bin_width)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
+    # 3. Metriche salvate su file CSV per ogni n
+    plotter.save_depth_metrics(res_t, res_u, max_n=10, filename="metrics_per_n.csv")
 
-        pr_t = per_rating_metrics(res_t, bin_edges)
-        pr_u = per_rating_metrics(res_u, bin_edges)
-
-        plot_per_rating(bin_centers, pr_t, pr_u, "move_acc",
-                        "Move Accuracy",
-                        "Move Accuracy per fascia di rating",
-                        os.path.join(cfg.plots_dir, "per_rating_move.png"))
-        plot_per_rating(bin_centers, pr_t, pr_u, "mate_acc",
-                        "Mate Accuracy",
-                        "Mate Accuracy per fascia di rating",
-                        os.path.join(cfg.plots_dir, "per_rating_mate.png"))
-        plot_rating_histogram(res_t["rating"], bin_edges,
-                              os.path.join(cfg.plots_dir, "hist_rating.png"))
-
-        per_rating_csv = os.path.join(cfg.out_dir, "test_per_rating.csv")
-        with open(per_rating_csv, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["bin_lo", "bin_hi", "n_timed",
-                        "move_acc_timed", "mate_acc_timed",
-                        "move_acc_untimed", "mate_acc_untimed"])
-            for i in range(len(bin_centers)):
-                w.writerow([
-                    int(bin_edges[i]), int(bin_edges[i + 1]),
-                    int(pr_t["n"][i]),
-                    f"{pr_t['move_acc'][i]:.6f}" if not np.isnan(pr_t['move_acc'][i]) else "",
-                    f"{pr_t['mate_acc'][i]:.6f}" if not np.isnan(pr_t['mate_acc'][i]) else "",
-                    f"{pr_u['move_acc'][i]:.6f}" if not np.isnan(pr_u['move_acc'][i]) else "",
-                    f"{pr_u['mate_acc'][i]:.6f}" if not np.isnan(pr_u['mate_acc'][i]) else "",
-                ])
-        logger.info(f"Salvato {per_rating_csv}")
-
-    plot_confusion_matrix(res_t["mate_true"], res_t["mate_pred"], cfg.num_mate_classes,
-                          "Confusion Matrix Mate-in-N (Timed)",
-                          os.path.join(cfg.plots_dir, "confusion_mate_timed.png"))
-    plot_confusion_matrix(res_u["mate_true"], res_u["mate_pred"], cfg.num_mate_classes,
-                          "Confusion Matrix Mate-in-N (Untimed)",
-                          os.path.join(cfg.plots_dir, "confusion_mate_untimed.png"))
+    # Grafici ausiliari
+    plotter.plot_aggregate_bars(res_t, res_u, filename="aggregate_bars.png")
+    plotter.plot_confusion_matrix(res_t["mate_true"], res_t["mate_pred"], cfg.num_mate_classes,
+                                  "Confusion Matrix Mate-in-N (Timed)", "confusion_mate_timed.png")
+    plotter.plot_confusion_matrix(res_u["mate_true"], res_u["mate_pred"], cfg.num_mate_classes,
+                                  "Confusion Matrix Mate-in-N (Untimed)", "confusion_mate_untimed.png")
 
     logger.info("Valutazione completata. Risultati e grafici salvati con successo.")
 

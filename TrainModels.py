@@ -15,6 +15,7 @@ from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from Training_TestModel.TimeChainGnn import TimedPolicyGNN
 from Training_TestModel.MetricLogger import TrainingMetricsLogger, StratifiedEvaluator
+from Training_TestModel.EvaluatorPlotter import EvaluatorPlotter
 
 
 def load_config(config_path: str = "train.yaml") -> SimpleNamespace:
@@ -33,7 +34,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("trainer")
-s
+
 
 def set_seed(seed: int) -> None:
     random.seed(seed)
@@ -304,6 +305,25 @@ def main():
         llm_results=None,
         max_n=cfg.max_mate_depth_eval
     )
+
+    # === INIZIO INTEGRAZIONE EvaluatorPlotter ===
+    logger.info("Generazione grafici aggiuntivi ed export CSV con EvaluatorPlotter...")
+    plots_dir = os.path.join(cfg.results_dir, "eval_plots_extra")
+    metrics_dir = os.path.join(cfg.results_dir, "eval_metrics_extra")
+    
+    plotter = EvaluatorPlotter(plots_dir=plots_dir, out_dir=metrics_dir)
+
+    plotter.plot_depth_bars(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
+    plotter.plot_depth_curves(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
+    plotter.save_depth_metrics(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
+
+    try:
+        plotter.plot_aggregate_bars(strat_timed, strat_untimed)
+    except KeyError:
+        logger.debug("Plot aggregato saltato (le chiavi globali 'move_acc' o 'mate_acc' mancano nei risultati).")
+
+    # === FINE INTEGRAZIONE ===
+
     logger.info("Valutazione completata. Grafici e metriche esportati con successo.")
 
 
