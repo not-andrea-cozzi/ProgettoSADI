@@ -13,7 +13,7 @@ pipeline:
   log_file: "pipeline.log"
   log_level: "INFO"
   force_recompute: false
-  step: null           
+  step: "external_holdout"           
                                   
 engine:
   stockfish_path: "/usr/games/stockfish"

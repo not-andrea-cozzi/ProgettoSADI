@@ -53,7 +53,7 @@ def require_executable(path: str, hint: str = ""):
         raise PipelineConfigError(msg)
 
 
-def load_yaml_config(config_path: str) -> Dict[str, Any]:
+def load_yaml_config(config_path: str = "Yaml/main.yaml") -> Dict[str, Any]:
     require_file(config_path, "Specificare un file YAML valido tramite --config.")
     if yaml is None:
         raise PipelineConfigError(
@@ -182,7 +182,7 @@ VALID_STEPS = [
     "decompress_puzzles", "build_puzzles", "merge_and_split", "external_holdout",
 ]
 
-CONFIG_PATH = "main.yaml"
+CONFIG_PATH = "Yaml/main.yaml"
 
 
 def main():

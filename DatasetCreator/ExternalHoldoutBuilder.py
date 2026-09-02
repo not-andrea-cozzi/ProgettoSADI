@@ -1,5 +1,6 @@
 import atexit
 import io
+import json
 import multiprocessing as mp
 import os
 import threading
@@ -21,17 +22,7 @@ from DatasetCreator.GraphBuilder import GraphBuilder
 _engine: Optional[chess.engine.SimpleEngine] = None
 _engine_pid: Optional[int] = None
 
-# --- WATCHDOG per-worker -----------------------------------------------
-# Stockfish (via python-chess) puo' restare bloccato in analyse() oltre il
-# Limit(time=...) richiesto se il sottoprocesso non risponde piu'
-# correttamente (pipe rotta, deadlock interno, ecc.): il Limit e' un
-# suggerimento per il motore, non un timeout wall-clock imposto dal lato
-# Python. Un thread daemon per worker controlla periodicamente da quanto
-# tempo e' iniziata l'ultima analyse() e, se supera _WATCHDOG_MARGIN oltre
-# il time_limit atteso, uccide forzatamente il processo Stockfish
-# sottostante: la analyse() bloccata riceve un errore di pipe (gestito da
-# _analyse_game come EngineTerminatedError/Exception) e il worker torna
-# libero invece di restare appeso per sempre a pool.join().
+
 _watchdog_lock = threading.Lock()
 _watchdog_deadline: Optional[float] = None
 _watchdog_stop = threading.Event()
@@ -110,6 +101,18 @@ class ExternalHoldoutBuilder:
     Le partite sono sottomesse a chunk (`chunk_games`); dopo ogni chunk si
     verifica se i target di stratificazione sono soddisfatti e, in tal
     caso, si esce subito senza sottomettere altri chunk (early-stop).
+
+    NOTA (allineamento a proggetto_ai.md): la spec descrive l'held-out
+    come un insieme di problemi "mate in n" con FEN + mosse di soluzione
+    in UCI, pensati anche per essere dati in pasto a un LLM in linguaggio
+    naturale (confronto GNN vs LLM). Il dataset qui costruito parte da
+    partite PGN reali analizzate con Stockfish (non da un dataset di
+    puzzle FEN/UCI gia' pronto come Chess.com/Kaggle, opzione alternativa
+    citata nella spec), ma il formato di OUTPUT ora rispetta comunque il
+    contratto richiesto: ogni problema porta con se' FEN esplicito e mossa
+    risolutiva in notazione UCI esplicita (prima non erano salvati come
+    campi diretti sul Data, andavano ricostruiti dal chiamante), ed e'
+    esportabile anche come JSONL testuale puro per il baseline LLM.
     """
 
     def __init__(
@@ -137,6 +140,7 @@ class ExternalHoldoutBuilder:
         candidate_max_legal_moves: Optional[int] = None,
         skip_if_in_check: bool = False,
         pool_join_timeout: Optional[float] = 15.0,
+        jsonl_out_path: Optional[str] = None,
     ):
         # config_error_cls: eccezione da sollevare per errori di
         # configurazione/validazione (file mancanti, colonna assente, ecc.).
@@ -181,6 +185,13 @@ class ExternalHoldoutBuilder:
         # sempre PRIMA del checkpoint finale, con perdita del lavoro svolto.
         # None disabilita il timeout (join bloccante puro).
         self.pool_join_timeout = pool_join_timeout
+
+        # Percorso JSONL "testuale" (FEN, mossa UCI risolutiva, mate_n,
+        # problem_id) accanto al .pt binario PyG. Serve per dare lo stesso
+        # identico held-out a un LLM (Component/LLMBaseline.py) senza dover
+        # decodificare i tensori di GraphBuilder. Default: stesso nome del
+        # .pt con estensione .jsonl.
+        self.jsonl_out_path = jsonl_out_path or (os.path.splitext(out_pt)[0] + ".jsonl")
 
         cpu_count = os.cpu_count() or 2
         self.workers = workers or max(1, cpu_count - 1)
@@ -288,10 +299,10 @@ class ExternalHoldoutBuilder:
         economico pre-Stockfish prima di ogni chiamata analyse(), che a
         parita' di time_limit e' il costo dominante per posizione.
 
-        Ritorna dict leggeri (FEN + label) anziche' chess.Board/Move: sono
-        pickle-friendly e la costruzione del Data/GraphBuilder resta nel
-        processo principale, dove lo stato counts_by_n/target e' gestito
-        senza necessita' di lock.
+        Ritorna dict leggeri (FEN + label + mossa UCI) anziche'
+        chess.Board/Move: sono pickle-friendly e la costruzione del
+        Data/GraphBuilder resta nel processo principale, dove lo stato
+        counts_by_n/target e' gestito senza necessita' di lock.
         """
         (
             game_idx,
@@ -386,6 +397,7 @@ class ExternalHoldoutBuilder:
                                     "fen": board.fen(),
                                     "mate_n": int(mate_n),
                                     "best_move_idx": int(best_idx),
+                                    "best_move_uci": engine_best_move.uci(),
                                     "problem_id": f"chesscom_{game_idx}_{node.ply()}",
                                 }
                             )
@@ -431,12 +443,20 @@ class ExternalHoldoutBuilder:
 
         counts_by_n: Dict[int, int] = defaultdict(int)
         test_data: List[Any] = []
+        # Record testuali paralleli a test_data (stesso ordine, stesso
+        # contenuto informativo) usati per l'export JSONL. Prima questa
+        # informazione (FEN, mossa UCI) esisteva solo transitoriamente nel
+        # worker e andava perduta: non era recuperabile dal .pt salvato
+        # senza extra lavoro (board.fen() non e' l'inverso banale di
+        # GraphBuilder.board_to_pyg_data).
+        text_records: List[Dict[str, Any]] = []
         tmp_out = self.out_pt + ".tmp"
 
         def save_checkpoint():
             os.makedirs(os.path.dirname(os.path.abspath(self.out_pt)) or ".", exist_ok=True)
             torch.save(test_data, tmp_out)
             os.replace(tmp_out, self.out_pt)
+            self._save_jsonl(text_records)
 
         def targets_satisfied() -> bool:
             if len(test_data) >= self.target_total_problems:
@@ -493,8 +513,24 @@ class ExternalHoldoutBuilder:
                         data_item = GraphBuilder.board_to_pyg_data(board, clock_seconds=0.0, label=label)
                         data_item.problem_id = item["problem_id"]
                         data_item.mate_n = mate_n
+                        # FIX: prima FEN e mossa UCI non erano salvate come
+                        # campi accessibili sul Data stesso, richiesto dalla
+                        # spec ("FEN starting position, solution moves in
+                        # UCI"). torch_geometric.data.Data accetta attributi
+                        # custom liberamente; stringhe passano tal quali
+                        # nel collate/salvataggio di una lista python.
+                        data_item.fen = item["fen"]
+                        data_item.best_move_uci = item["best_move_uci"]
 
                         test_data.append(data_item)
+                        text_records.append(
+                            {
+                                "problem_id": item["problem_id"],
+                                "fen": item["fen"],
+                                "mate_n": mate_n,
+                                "best_move_uci": item["best_move_uci"],
+                            }
+                        )
                         counts_by_n[mate_n] += 1
 
                         if len(test_data) % self.checkpoint_every == 0:
@@ -513,7 +549,7 @@ class ExternalHoldoutBuilder:
             # bloccato in un analyse() lungo), resta appeso e pool.join()
             # si blocca indefinitamente PRIMA del checkpoint finale, con
             # perdita totale del lavoro svolto (stesso bug documentato in
-            # ChessAnalysisPipeline.run()).
+            # ChessAnalysisPipeline).
             #
             # _close_engine() e' registrata con atexit in _init_worker, ma
             # non e' garanzia assoluta: affianchiamo un timeout deterministico
@@ -570,5 +606,23 @@ class ExternalHoldoutBuilder:
         save_checkpoint()
         dist_str = ", ".join(f"n={n}: {counts_by_n[n]}/{strat_targets[n]}" for n in sorted(strat_targets.keys()))
         print(f"Held-out completato: {len(test_data)} problemi salvati in {self.out_pt} (Distribuzione: {dist_str}).")
+        print(f"Held-out testuale (FEN/UCI) salvato in {self.jsonl_out_path} per il confronto con LLM.")
         print(f"Partite analizzate: {processed_games}")
         return test_data
+
+    # ================================================================
+    # EXPORT TESTUALE (per LLMBaseline)
+    # ================================================================
+
+    def _save_jsonl(self, text_records: List[Dict[str, Any]]) -> None:
+        """Salva l'held-out in formato JSONL leggibile (un problema per
+        riga: problem_id, fen, mate_n, best_move_uci). E' il formato che
+        Component/LLMBaseline.py consuma per interrogare Llama3, cosi' lo
+        stesso identico set di problemi valuta sia il GNN sia l'LLM
+        (nessun rischio di due held-out disallineati)."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.jsonl_out_path)) or ".", exist_ok=True)
+        tmp_path = self.jsonl_out_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            for rec in text_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        os.replace(tmp_path, self.jsonl_out_path)
