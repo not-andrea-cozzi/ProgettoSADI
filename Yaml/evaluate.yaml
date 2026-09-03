@@ -1,0 +1,12 @@
+dataset_path: "Dataset/External/club_timed_validator.pt"
+checkpoint_dir: "Modelli/Checkpoints"
+plots_dir: "Risultati/Plots"
+out_dir: "Risultati/Output"
+batch_size: 64
+num_workers: 4
+hidden_dim: 128
+num_layers: 6
+lambda_decay: 0.9
+mate_loss_weight: 0.5
+num_mate_classes: 10
+max_depth: 10

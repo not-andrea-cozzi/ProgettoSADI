@@ -15,7 +15,7 @@ from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate
 from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from Training_TestModel.TimeChainGnn import TimedPolicyGNN
 from Training_TestModel.MetricLogger import TrainingMetricsLogger, StratifiedEvaluator
-from Training_TestModel.EvaluatorPlotter import EvaluatorPlotter
+from ModelUtils.EvaluatorPlotter import EvaluatorPlotter
 
 
 def load_config(config_path: str = "train.yaml") -> SimpleNamespace:
