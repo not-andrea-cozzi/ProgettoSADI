@@ -1,9 +1,9 @@
-
 import argparse
+import json
 import logging
 import os
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -27,6 +27,21 @@ def setup_logger(log_file: str, log_level: str) -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+
+def load_avg_time_by_rating(path: Optional[str]) -> Optional[Dict[int, float]]:
+    """Carica il JSON prodotto da TimeStatBuilder.build_and_save() (chiavi
+    bucket di rating come stringa -> secondi medi), convertendo le chiavi in
+    int. Ritorna None se path e' vuoto o il file non esiste, cosi'
+    ClubGamesTimedBuilder ricade su default_move_seconds costante."""
+    if not path:
+        return None
+    if not os.path.exists(path):
+        print(f"--> avg_time_by_rating_json specificato ma non trovato: {path} (ignorato)")
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    return {int(k): float(v) for k, v in raw.items()}
 
 
 def main() -> None:
@@ -68,6 +83,18 @@ def main() -> None:
     out_pt = os.path.join(out_dir, output_filename)
     jsonl_out_path = os.path.join(out_dir, jsonl_filename) if jsonl_filename else None
 
+    # Fallback clock per rating: opzionale, usato solo quando una mossa non
+    # ha %clk annotato nel PGN sorgente (es. dump Lichess standard mensili,
+    # che tipicamente non includono i commenti clock).
+    avg_time_by_rating_path = builder_cfg.get("avg_time_by_rating_json") or raw_cfg.get(
+        "time_stats_path"
+    )
+    avg_time_by_rating = load_avg_time_by_rating(avg_time_by_rating_path)
+    if avg_time_by_rating:
+        print(f"--> avg_time_by_rating caricato da {avg_time_by_rating_path} ({len(avg_time_by_rating)} bucket)")
+    else:
+        print("--> avg_time_by_rating non fornito: le mosse senza %clk useranno default_move_seconds costante.")
+
     # Mappatura e istanziazione di ClubGamesTimedBuilder
     builder = ClubGamesTimedBuilder(
         csv_path=raw_cfg.get("external_csv", "DatasetCreator/RawData/club_games_data.csv.zip"),
@@ -101,6 +128,7 @@ def main() -> None:
         min_game_plies=int(builder_cfg.get("min_game_plies", 20)),
         pool_join_timeout=float(builder_cfg.get("pool_join_timeout", 15.0)),
         jsonl_out_path=jsonl_out_path,
+        avg_time_by_rating=avg_time_by_rating,
     )
 
 

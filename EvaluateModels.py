@@ -31,6 +31,16 @@ def load_config(config_path: str) -> argparse.Namespace:
     return argparse.Namespace(**config_dict)
 
 
+def dataset_tag(dataset_path: str) -> str:
+    """Ricava un tag leggibile dal path del dataset, da usare come suffisso
+    nei nomi dei file di output (es. 'games_untimed_test_one' da
+    'Dataset/Games_v2_untimed/games_untimed_test_one.pt'), cosi' run su
+    dataset diversi non si sovrascrivono a vicenda in out_dir."""
+    base = os.path.basename(dataset_path)
+    name, _ = os.path.splitext(base)
+    return name
+
+
 def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, mate_loss_weight: float) -> dict:
     """
     Valuta il modello sul dataloader e restituisce metriche aggregate.
@@ -73,7 +83,7 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
             mate_pred = mate_logits.argmax(dim=-1)
             mate_correct = (mate_pred == mate_target).cpu().numpy()
             mate_correct_flags.append(mate_correct)
-            
+
             mate_true_all.append(mate_target.cpu().numpy())
             mate_pred_all.append(mate_pred.cpu().numpy())
 
@@ -105,9 +115,10 @@ def evaluate(model: torch.nn.Module, loader: DataLoader, device: torch.device, m
         "mate_correct": mate_correct_np,
         "mate_true": mate_true_np,
         "mate_pred": mate_pred_np,
-        "mate_n": mate_true_np, 
+        "mate_n": mate_true_np,
         "rating": rating_np,
     }
+
 
 def main():
     parser = argparse.ArgumentParser(description="Script unificato per la valutazione dei modelli Timed e Untimed.")
@@ -133,11 +144,11 @@ def main():
     test_pt = getattr(cfg, "dataset_path", None)
     if not test_pt:
         test_pt = os.path.join(getattr(cfg, "data_dir", ""), "merged_test.pt")
-    
+
     logger.info(f"Caricamento dataset {test_pt}...")
     test_positions = torch.load(test_pt, weights_only=False)
     test_dataset = PuzzleSequenceDataset(test_positions)
-    
+
     use_persistent = getattr(cfg, "num_workers", 0) > 0
     prefetch = 2 if use_persistent else None
 
@@ -168,7 +179,10 @@ def main():
     ckpt_u = torch.load(untimed_ckpt, map_location=device, weights_only=False)
     model_untimed.load_state_dict(ckpt_u["model_state"])
 
-    plotter = EvaluatorPlotter(plots_dir=cfg.plots_dir, out_dir=cfg.out_dir)
+    
+    os.makedirs(cfg.out_dir, exist_ok=True)
+    tag = dataset_tag(test_pt)
+    plotter = EvaluatorPlotter(plots_dir=cfg.out_dir, out_dir=cfg.out_dir)
 
     logger.info("Valutazione modello timed...")
     res_t = evaluate(model_timed, test_loader, device, cfg.mate_loss_weight)
@@ -178,8 +192,7 @@ def main():
     res_u = evaluate(model_untimed, test_loader, device, cfg.mate_loss_weight)
     logger.info(f"[Untimed] Loss={res_u['loss']:.4f} | Move Acc={res_u['move_acc']*100:.2f}% | Mate Acc={res_u['mate_acc']*100:.2f}% | N={res_u['n']}")
 
-    os.makedirs(cfg.out_dir, exist_ok=True)
-    csv_path = os.path.join(cfg.out_dir, "test_metrics.csv")
+    csv_path = os.path.join(cfg.out_dir, f"test_metrics_{tag}.csv")
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tag", "n", "loss", "move_acc", "mate_acc"])
@@ -188,14 +201,21 @@ def main():
     logger.info(f"Salvato {csv_path}")
 
     max_n = getattr(cfg, "max_depth", 10)
-    plotter.plot_depth_bars(res_t, res_u, max_n=max_n, filename="bars_per_n.png")
-    plotter.plot_depth_curves(res_t, res_u, max_n=max_n, filename="curves_per_n.png")
-    plotter.save_depth_metrics(res_t, res_u, max_n=max_n, filename="metrics_per_n.csv")
-    plotter.plot_aggregate_bars(res_t, res_u, filename="aggregate_bars.png")
-    plotter.plot_confusion_matrix(res_t["mate_true"], res_t["mate_pred"], cfg.num_mate_classes, "Confusion Matrix Mate-in-N (Timed)", "confusion_mate_timed.png")
-    plotter.plot_confusion_matrix(res_u["mate_true"], res_u["mate_pred"], cfg.num_mate_classes, "Confusion Matrix Mate-in-N (Untimed)", "confusion_mate_untimed.png")
+    plotter.plot_depth_bars(res_t, res_u, max_n=max_n, filename=f"bars_per_n_{tag}.png")
+    plotter.plot_depth_curves(res_t, res_u, max_n=max_n, filename=f"curves_per_n_{tag}.png")
+    plotter.save_depth_metrics(res_t, res_u, max_n=max_n, filename=f"metrics_per_n_{tag}.csv")
+    plotter.plot_aggregate_bars(res_t, res_u, filename=f"aggregate_bars_{tag}.png")
+    plotter.plot_confusion_matrix(
+        res_t["mate_true"], res_t["mate_pred"], cfg.num_mate_classes,
+        "Confusion Matrix Mate-in-N (Timed)", f"confusion_mate_timed_{tag}.png"
+    )
+    plotter.plot_confusion_matrix(
+        res_u["mate_true"], res_u["mate_pred"], cfg.num_mate_classes,
+        "Confusion Matrix Mate-in-N (Untimed)", f"confusion_mate_untimed_{tag}.png"
+    )
 
     logger.info("Valutazione completata. Risultati e grafici salvati con successo.")
+
 
 if __name__ == "__main__":
     main()

@@ -9,7 +9,6 @@ import zstandard as zstd
 from tqdm import tqdm
 import yaml
 
-from DatasetCreator.ChessAnalysisPipeline import ChessAnalysisPipeline
 from DatasetCreator.ExternalHoldoutBuilder import ExternalHoldoutBuilder
 from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
@@ -261,7 +260,7 @@ def main():
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
-    
+    """
     def _step_games_pipeline():
         require_file(raw_cfg["games_zst"], "Archivio PGN mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
@@ -310,7 +309,7 @@ def main():
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
             do_fn=_step_games_pipeline,
         )
-    
+    """
 
     # Step 3: Decompressione puzzle Lichess
     def _step_decompress_puzzles():
@@ -394,6 +393,7 @@ def main():
             out_pt=holdout_path,
             mate_range=mate_holdout_range,
             time_limit=holdout_cfg.get("time_limit_seconds", 0.3),
+            avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
             pgn_col=holdout_cfg.get("pgn_col", "pgn"),
             max_games_to_scan=holdout_cfg.get("max_games_to_scan", 1200),
             target_total_problems=holdout_cfg.get("target_total_problems", 200),

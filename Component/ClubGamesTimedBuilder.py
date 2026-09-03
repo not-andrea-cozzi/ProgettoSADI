@@ -43,6 +43,7 @@ ripropagare l'eccezione.
 from __future__ import annotations
 
 import atexit
+import bz2
 import io
 import json
 import multiprocessing as mp
@@ -53,7 +54,7 @@ import threading
 import time
 import zipfile
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import chess
 import chess.engine
@@ -62,7 +63,27 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
+try:
+    import zstandard as zstd
+except ImportError:  # pragma: no cover - dipendenza opzionale se non serve .zst
+    zstd = None
+
 from DatasetCreator.GraphBuilder import GraphBuilder
+
+# ============================================================================
+# SORGENTI SUPPORTATE (rilevate automaticamente da estensione file)
+# ============================================================================
+#   - .csv, .csv.zip           -> CSV con una colonna `pgn_col` (una partita
+#                                  chess.com per riga), es. club_games_data.csv.zip
+#   - .pgn                     -> file PGN grezzo, multi-partita, non compresso
+#   - .pgn.zst                 -> PGN grezzo compresso zstd (dump Lichess standard,
+#                                  es. lichess_db_standard_rated_2013-11.pgn.zst)
+#   - .pgn.bz2                 -> PGN grezzo compresso bzip2 (dump FICS, es.
+#                                  ficsgamesdb_201701_chess_nomovetimes_4339524.pgn.bz2)
+#
+# In tutti i casi _read_pgn_rows() normalizza l'output a una lista di coppie
+# (indice, pgn_text) cosi' che _worker() resti identico indipendentemente
+# dalla sorgente.
 
 _engine: Optional[chess.engine.SimpleEngine] = None
 _engine_pid: Optional[int] = None
@@ -143,6 +164,28 @@ def _worker_sigterm_handler(signum, frame) -> None:
     os._exit(0)
 
 
+class _ClosingStream:
+    """Context manager che espone un file-like testuale e, alla chiusura,
+    chiude sia il wrapper (es. TextIOWrapper su uno zstd stream_reader) sia
+    l'eventuale file raw sottostante (necessario per .pgn.zst, dove
+    TextIOWrapper non chiude automaticamente il file binario aperto a mano)."""
+
+    def __init__(self, text_stream, raw_file):
+        self._text_stream = text_stream
+        self._raw_file = raw_file
+
+    def __enter__(self):
+        return self._text_stream
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._text_stream.close()
+        finally:
+            if self._raw_file is not None:
+                self._raw_file.close()
+        return False
+
+
 class ClubGamesTimedBuilder:
     """Costruisce un .pt di validazione esterna da club_games_data.csv.zip
     usando il clock reale per-mossa (move_duration), non un valore fittizio."""
@@ -186,9 +229,32 @@ class ClubGamesTimedBuilder:
         min_game_plies: int = 20,
         pool_join_timeout: Optional[float] = 15.0,
         jsonl_out_path: Optional[str] = None,
+        source_format: Optional[str] = None,
+        avg_time_by_rating: Optional[Dict[int, float]] = None,
     ):
+        """
+        Args (nuovi rispetto alla versione originale):
+            csv_path: ora accetta anche path a PGN grezzi (.pgn, .pgn.zst,
+                .pgn.bz2) oltre a CSV/CSV.zip. Nome parametro invariato per
+                retrocompatibilita' con GamesDataset.py / Yaml esistenti.
+            source_format: forza il formato invece di autodetectarlo da
+                estensione. Valori: "csv", "pgn", "pgn.zst", "pgn.bz2".
+                None (default) = autodetect.
+            avg_time_by_rating: dizionario {bucket_rating: secondi_medi},
+                stesso formato prodotto da TimeStatBuilder.build_and_save()
+                (es. avg_time_by_rating.json). Quando una mossa non ha
+                %clk annotato, invece di usare il valore fisso
+                default_move_seconds per TUTTE le posizioni, si usa il
+                tempo medio del bucket di rating piu' vicino al rating
+                (WhiteElo/BlackElo, letto dagli header PGN) del giocatore
+                di turno. Se None (default) o se il rating non e'
+                disponibile/parsabile, si ricade su default_move_seconds
+                come prima. clock_is_real resta False in entrambi i casi
+                di fallback (il tempo resta stimato, non osservato).
+        """
         self._config_error_cls = config_error_cls
         self.csv_path = csv_path
+        self.source_format = source_format or self._detect_source_format(csv_path)
         self.stockfish_path = stockfish_path
         self.out_pt = out_pt
         self.mate_range = mate_range
@@ -197,6 +263,7 @@ class ClubGamesTimedBuilder:
         self.skip_games = max(0, skip_games)
         self.max_games_to_scan = max_games_to_scan
         self.default_move_seconds = default_move_seconds
+        self.avg_time_by_rating = avg_time_by_rating or {}
         self.require_clock = require_clock
         self.min_ply = max(0, min_ply)
         self.ply_sample_step = max(1, ply_sample_step)
@@ -320,6 +387,39 @@ class ClubGamesTimedBuilder:
         return max(0.0, spent)
 
     # ================================================================
+    # FALLBACK CLOCK VIA RATING (usato quando manca %clk nel PGN)
+    # ================================================================
+
+    @staticmethod
+    def _parse_rating(raw: str) -> Optional[int]:
+        """Converte un header WhiteElo/BlackElo in int, tollerando valori
+        mancanti o non numerici (es. "?", stringa vuota, "1500?")."""
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            digits = "".join(ch for ch in raw if ch.isdigit())
+            return int(digits) if digits else None
+
+    def _closest_bucket_time(self, rating: Optional[int]) -> Optional[float]:
+        """Trova il tempo medio del bucket di rating piu' vicino in
+        self.avg_time_by_rating. Ritorna None se il dizionario e' vuoto o il
+        rating non e' disponibile, cosi' il chiamante puo' ricadere su
+        default_move_seconds (stessa semantica di
+        ExternalHoldoutBuilder._closest_bucket_time)."""
+        if rating is None or not self.avg_time_by_rating:
+            return None
+        closest_bucket = min(self.avg_time_by_rating.keys(), key=lambda b: abs(b - rating))
+        return self.avg_time_by_rating[closest_bucket]
+
+    def _fallback_clock_seconds(self, mover_rating: Optional[int]) -> float:
+        """Tempo da usare quando la mossa non ha %clk annotato: bucket per
+        rating se disponibile, altrimenti default_move_seconds costante."""
+        bucket_time = self._closest_bucket_time(mover_rating)
+        return bucket_time if bucket_time is not None else self.default_move_seconds
+
+    # ================================================================
     # FILTRI ECONOMICI (identici a ChessAnalysisPipeline / ExternalHoldoutBuilder)
     # ================================================================
 
@@ -408,6 +508,11 @@ class ClubGamesTimedBuilder:
         time_control = game.headers.get("TimeControl", "")
         base_time, increment = self._parse_time_control(time_control)
 
+        mover_rating = {
+            chess.WHITE: self._parse_rating(game.headers.get("WhiteElo", "")),
+            chess.BLACK: self._parse_rating(game.headers.get("BlackElo", "")),
+        }
+
         previous_clock = {
             chess.WHITE: base_time if base_time > 0 else None,
             chess.BLACK: base_time if base_time > 0 else None,
@@ -480,7 +585,17 @@ class ClubGamesTimedBuilder:
                 node = next_node
                 continue
 
-            clock_seconds = move_duration if move_duration is not None else self.default_move_seconds
+            if move_duration is not None:
+                clock_seconds = move_duration
+                clock_source = "real"
+            else:
+                rating_bucket_time = self._closest_bucket_time(mover_rating[mover_color])
+                if rating_bucket_time is not None:
+                    clock_seconds = rating_bucket_time
+                    clock_source = "rating_bucket"
+                else:
+                    clock_seconds = self.default_move_seconds
+                    clock_source = "default_constant"
 
             label = {"mate_n": int(mate_n), "best_move_idx": int(best_move_idx)}
             try:
@@ -496,11 +611,19 @@ class ClubGamesTimedBuilder:
             data.ply = int(node.ply())
             data.clock_seconds = float(clock_seconds)
             data.clock_is_real = bool(move_duration is not None)
+            data.clock_source = clock_source
             data.mate_n = int(mate_n)
             data.best_move_idx = int(best_move_idx)
             data.best_move_uci = best_move.uci()
             data.fen = board.fen()
             data.problem_id = f"club_{game_idx}_{node.ply()}"
+            mover_rating_value = mover_rating[mover_color]
+            # NaN (non None) per compatibilita' con PyG Batch.from_data_list,
+            # che concatena data.rating in un tensore float: un None misto a
+            # float romperebbe la collation. NaN e' il sentinel standard per
+            # "rating assente" nei tensori numerici di questo progetto (vedi
+            # gia' l'uso di -1 come sentinel altrove in data/encoding.py).
+            data.rating = float(mover_rating_value) if mover_rating_value is not None else float("nan")
 
             data_list.append(data)
             node = next_node
@@ -508,10 +631,38 @@ class ClubGamesTimedBuilder:
         return game_idx, data_list
 
     # ================================================================
+    # SOURCE FORMAT DETECTION
+    # ================================================================
+
+    @staticmethod
+    def _detect_source_format(path: str) -> str:
+        """Rileva il formato sorgente dall'estensione del file.
+
+        Riconosce doppie estensioni (es. .csv.zip, .pgn.zst, .pgn.bz2)
+        oltre alle singole (.csv, .zip, .pgn).
+        """
+        lower = path.lower()
+        if lower.endswith(".pgn.zst") or lower.endswith(".zst"):
+            return "pgn.zst"
+        if lower.endswith(".pgn.bz2") or lower.endswith(".bz2"):
+            return "pgn.bz2"
+        if lower.endswith(".pgn"):
+            return "pgn"
+        if lower.endswith(".csv.zip") or lower.endswith(".zip"):
+            return "csv"
+        if lower.endswith(".csv"):
+            return "csv"
+        raise ValueError(
+            f"Impossibile determinare il formato sorgente da '{path}'. "
+            f"Estensioni supportate: .csv, .csv.zip, .pgn, .pgn.zst, .pgn.bz2. "
+            f"Puoi forzare il formato passando source_format esplicitamente."
+        )
+
+    # ================================================================
     # CSV READING (una partita per riga, con skip)
     # ================================================================
 
-    def _read_pgn_rows(self):
+    def _read_pgn_rows_csv(self):
         """Legge il csv (anche dentro uno zip) e ritorna (row_idx, pgn_text)
         a partire da skip_games, fino a max_games_to_scan se specificato."""
         if self.csv_path.endswith(".zip"):
@@ -536,6 +687,91 @@ class ClubGamesTimedBuilder:
         return list(series.items())
 
     # ================================================================
+    # PGN GREZZO STREAMING (.pgn, .pgn.zst, .pgn.bz2)
+    # ================================================================
+
+    def _open_text_stream(self):
+        """Apre il file sorgente come stream testuale, decomprimendo se
+        necessario in base a self.source_format. Ritorna un context manager
+        che produce un file-like di testo (UTF-8)."""
+        if self.source_format == "pgn.zst":
+            if zstd is None:
+                raise self._config_error_cls(
+                    "Il pacchetto 'zstandard' e' richiesto per leggere file .pgn.zst. "
+                    "Installa con: pip install zstandard"
+                )
+            raw_file = open(self.csv_path, "rb")
+            dctx = zstd.ZstdDecompressor()
+            reader = dctx.stream_reader(raw_file)
+            text_stream = io.TextIOWrapper(reader, encoding="utf-8", errors="replace")
+            return _ClosingStream(text_stream, raw_file)
+
+        if self.source_format == "pgn.bz2":
+            raw_file = bz2.open(self.csv_path, mode="rt", encoding="utf-8", errors="replace")
+            return _ClosingStream(raw_file, None)
+
+        if self.source_format == "pgn":
+            raw_file = open(self.csv_path, "r", encoding="utf-8", errors="replace")
+            return _ClosingStream(raw_file, None)
+
+        raise self._config_error_cls(
+            f"_open_text_stream chiamato con source_format non-PGN: {self.source_format}"
+        )
+
+    def _iter_pgn_texts_from_stream(self, text_stream) -> Iterator[Tuple[int, str]]:
+        """Streaming split di un file PGN multi-partita in blocchi di testo,
+        uno per partita, senza caricare l'intero file in RAM. Stessa logica
+        di ChessAnalysisPipeline._stream_pgn_texts: split su ogni riga che
+        inizia con '[Event '.
+
+        Applica skip_games (partite saltate dall'inizio) e max_games_to_scan
+        (numero massimo di partite emesse) esattamente come la versione CSV.
+        """
+        game_id = 0
+        yielded = 0
+        current_game: List[str] = []
+
+        for line in text_stream:
+            if line.startswith("[Event ") and current_game:
+                game_id += 1
+                if game_id > self.skip_games:
+                    yield (game_id, "".join(current_game))
+                    yielded += 1
+                    if self.max_games_to_scan is not None and yielded >= self.max_games_to_scan:
+                        return
+                current_game = [line]
+            else:
+                current_game.append(line)
+
+        if current_game:
+            game_id += 1
+            if game_id > self.skip_games:
+                if self.max_games_to_scan is None or yielded < self.max_games_to_scan:
+                    yield (game_id, "".join(current_game))
+
+    def _read_pgn_rows_streaming(self) -> List[Tuple[int, str]]:
+        """Materializza in lista (idx, pgn_text) da un PGN grezzo compresso o
+        meno. NOTA: a differenza del path CSV, qui il file viene interamente
+        letto e le partite tenute in memoria come stringhe -- per dump molto
+        grandi (es. Lichess mensili da svariati GB) impostare max_games_to_scan
+        per limitare il consumo di RAM, dato che run() consuma comunque la
+        lista intera per costruire i chunk della Pool."""
+        pairs: List[Tuple[int, str]] = []
+        with self._open_text_stream() as text_stream:
+            for game_id, pgn_text in self._iter_pgn_texts_from_stream(text_stream):
+                pairs.append((game_id, pgn_text))
+        return pairs
+
+    def _read_pgn_rows(self):
+        """Dispatcher: ritorna (idx, pgn_text) indipendentemente dalla
+        sorgente (CSV con colonna pgn, oppure PGN grezzo .pgn/.pgn.zst/.pgn.bz2).
+        Il resto della pipeline (_worker, run) non ha bisogno di sapere quale
+        sorgente e' stata usata."""
+        if self.source_format == "csv":
+            return self._read_pgn_rows_csv()
+        return self._read_pgn_rows_streaming()
+
+    # ================================================================
     # RUN
     # ================================================================
 
@@ -554,13 +790,14 @@ class ClubGamesTimedBuilder:
             raise self._config_error_cls(msg)
 
     def run(self) -> List[Any]:
-        self._require_file(self.csv_path, "Verificare il percorso di club_games_data.csv.zip.")
+        self._require_file(self.csv_path, f"Verificare il percorso della sorgente ({self.source_format}).")
         self._require_executable(self.stockfish_path, "Verificare il percorso del binario Stockfish.")
 
+        print(f"--> Sorgente rilevata: {self.source_format} ({self.csv_path})")
         pgn_pairs = self._read_pgn_rows()
         if not pgn_pairs:
             raise RuntimeError(
-                f"Nessuna riga da processare dopo skip_games={self.skip_games} "
+                f"Nessuna partita da processare dopo skip_games={self.skip_games} "
                 f"(e max_games_to_scan={self.max_games_to_scan})."
             )
         logger_total = len(pgn_pairs)
@@ -586,7 +823,7 @@ class ClubGamesTimedBuilder:
 
         processed_games = 0
         accepted_games = 0
-        pbar = tqdm(total=logger_total, desc=f"Scansione club_games (skip={self.skip_games})")
+        pbar = tqdm(total=logger_total, desc=f"Scansione {self.source_format} (skip={self.skip_games})")
 
         def cleanup_after_failure() -> None:
             # Ignora un secondo Ctrl-C durante lo shutdown stesso, cosi' non
@@ -615,6 +852,7 @@ class ClubGamesTimedBuilder:
 
                     for data_item in data_list:
                         found_data.append(data_item)
+                        item_rating = data_item.rating
                         text_records.append(
                             {
                                 "problem_id": data_item.problem_id,
@@ -623,6 +861,8 @@ class ClubGamesTimedBuilder:
                                 "best_move_uci": data_item.best_move_uci,
                                 "clock_seconds": data_item.clock_seconds,
                                 "clock_is_real": data_item.clock_is_real,
+                                "clock_source": getattr(data_item, "clock_source", "unknown"),
+                                "rating": item_rating if item_rating == item_rating else None,  # NaN -> null
                             }
                         )
                         counts_by_n[data_item.mate_n] += 1
@@ -677,17 +917,33 @@ class ClubGamesTimedBuilder:
 
         save_checkpoint()
         dist_str = ", ".join(f"n={n}: {counts_by_n[n]}" for n in sorted(counts_by_n.keys()))
-        real_clock_count = sum(1 for d in found_data if getattr(d, "clock_is_real", False))
+
+        source_counts: Dict[str, int] = defaultdict(int)
+        for d in found_data:
+            source_counts[getattr(d, "clock_source", "unknown")] += 1
+        total_n = max(len(found_data), 1)
+
         print(
             f"Scansione completata: {processed_games} partite processate "
             f"(skip iniziale={self.skip_games}), {accepted_games} con almeno una posizione mate, "
             f"{len(found_data)} posizioni totali salvate in {self.out_pt}."
         )
         print(f"Distribuzione per n: {dist_str}.")
+        print("Origine del clock per posizione:")
         print(
-            f"Posizioni con clock REALE (da %clk): {real_clock_count}/{len(found_data)} "
-            f"({100 * real_clock_count / max(len(found_data), 1):.1f}%). Le restanti usano "
-            f"default_move_seconds={self.default_move_seconds} (partita senza clock o mossa non annotata)."
+            f"  - reale (%clk nel PGN):        {source_counts['real']}/{total_n} "
+            f"({100 * source_counts['real'] / total_n:.1f}%)"
+        )
+        print(
+            f"  - stimato da rating (bucket):  {source_counts['rating_bucket']}/{total_n} "
+            f"({100 * source_counts['rating_bucket'] / total_n:.1f}%)"
+            + ("" if self.avg_time_by_rating else "  [avg_time_by_rating non fornito, sempre 0]")
+        )
+        print(
+            f"  - costante fissa:              {source_counts['default_constant']}/{total_n} "
+            f"({100 * source_counts['default_constant'] / total_n:.1f}%) "
+            f"(default_move_seconds={self.default_move_seconds}, usato quando manca sia %clk "
+            f"sia un rating valido o avg_time_by_rating non e' stato fornito)"
         )
         print(f"Testuale salvato in {self.jsonl_out_path}.")
         return found_data

@@ -1,18 +1,3 @@
-"""
-ValHeldOut.py
-
-Valuta il set di held-out esterno (mate 1-10, generato da
-DatasetCreator/ExternalHoldoutBuilder.py) su tre "solutori":
-
-    1. GNN timed   (TimedPolicyGNN, use_time=True)
-    2. GNN untimed (TimedPolicyGNN, use_time=False)
-    3. LLM         (Llama 3 / GPT via Groq)
-
-Confronto GNN vs LLM stratificato per profondità di matto n,
-con FEN esplicito e mossa in UCI presi direttamente dai campi
-salvati da ExternalHoldoutBuilder (data.fen, data.best_move_uci,
-data.mate_n, data.problem_id).
-"""
 from __future__ import annotations
 
 import csv
@@ -33,8 +18,8 @@ import chess
 from torch.utils.data import DataLoader
 
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
-from ModelUtils.TimeChainGnn import TimedPolicyGNN
-from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from Training_TestModel.TimeChainGnn import TimedPolicyGNN
+from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from ModelUtils.EvaluatorPlotter import EvaluatorPlotter
 
 logging.basicConfig(
@@ -184,9 +169,11 @@ _UCI_RE = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbn]?)\b", re.IGNORECASE)
 
 def _build_llm_prompt(fen: str) -> str:
     return (
-        "You are a chess engine. Given the FEN position below, output ONLY "
-        "the best move in UCI format (e.g. e2e4 or e7e8q), nothing else. "
-        "No explanation, no move number, no extra text.\n\n"
+       "You are a chess engine. Given the FEN position below, output ONLY "
+        "the best move in UCI format: four or five lowercase characters, "
+        "e.g. 'e2e4' or 'e7e8q'. Do NOT use algebraic notation (no piece "
+        "letters like 'R' or 'N', no '+', no '#', no 'x'). Output ONLY the "
+        "UCI move, nothing else.\n\n"
         f"FEN: {fen}\n"
         "Best move (UCI):"
     )
@@ -197,6 +184,31 @@ def _extract_uci(text: str) -> Optional[str]:
         return None
     match = _UCI_RE.search(text.strip())
     return match.group(1).lower() if match else None
+_SAN_RE = re.compile(
+    r"\b(O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)\b"
+)
+
+
+def _try_parse_move(text: str, board: "chess.Board") -> str:
+    """Prova prima a interpretare 'text' come UCI, poi come SAN, validando
+    contro le mosse legali di 'board'. Ritorna '' se non trova nulla di valido."""
+    if not text:
+        return ""
+    uci_candidate = _extract_uci(text)
+    if uci_candidate:
+        try:
+            move = chess.Move.from_uci(uci_candidate)
+            if move in board.legal_moves:
+                return move.uci()
+        except ValueError:
+            pass
+    for san_candidate in _SAN_RE.findall(text):
+        try:
+            move = board.parse_san(san_candidate)
+            return move.uci()
+        except ValueError:
+            continue
+    return ""
 
 
 class GroqLLMSolver:
@@ -207,6 +219,7 @@ class GroqLLMSolver:
         api_key: str,
         temperature: float = 0.0,
         max_tokens: int = 32,
+        reasoning_effort: Optional[str] = None,
         timeout_seconds: float = 30.0,
         max_retries: int = 3,
         retry_backoff_seconds: float = 2.0,
@@ -220,11 +233,11 @@ class GroqLLMSolver:
         self.api_key = api_key
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.retry_backoff_seconds = retry_backoff_seconds
         self.request_delay_seconds = request_delay_seconds
-
     def solve(self, fen: str) -> Dict[str, Any]:
         payload = {
             "model": self.model,
@@ -232,6 +245,9 @@ class GroqLLMSolver:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
+        if self.reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -247,8 +263,17 @@ class GroqLLMSolver:
                     raise RuntimeError(f"rate limited (429): {resp.text[:200]}")
                 resp.raise_for_status()
                 data = resp.json()
-                raw_text = data["choices"][0]["message"]["content"]
+                message = data["choices"][0]["message"]
+                raw_text = message.get("content", "") or ""
                 pred = _extract_uci(raw_text)
+                if not pred:
+                    # fallback: gpt-oss puo' lasciare 'content' vuoto se il
+                    # ragionamento consuma tutto il budget di token prima
+                    # di scrivere la risposta finale, oppure ragiona in SAN
+                    reasoning_text = message.get("reasoning", "") or ""
+                    if reasoning_text:
+                        raw_text = reasoning_text
+                        pred = _extract_uci(reasoning_text)
                 if self.request_delay_seconds > 0:
                     time.sleep(self.request_delay_seconds)
                 return {"raw_text": raw_text, "pred_move_uci": pred or "", "error": None}
@@ -258,7 +283,6 @@ class GroqLLMSolver:
                     time.sleep(self.retry_backoff_seconds * attempt)
 
         return {"raw_text": "", "pred_move_uci": "", "error": str(last_err)}
-
 
 def evaluate_llm_on_holdout(
     data_list: List[Any],
@@ -310,6 +334,9 @@ def evaluate_llm_on_holdout(
                     json.dump(cache, f, indent=2)
 
         pred = result.get("pred_move_uci", "") or ""
+        if not pred:
+            board = chess.Board(fen)
+            pred = _try_parse_move(result.get("raw_text", "") or "", board)
         problem_ids.append(pid)
         mate_true.append(mate_n)
         best_uci.append(true_uci)
@@ -594,12 +621,13 @@ def main():
 
     solver = None
     if getattr(cfg, "llm_enabled", False):
-        api_key = os.environ.get(cfg.llm_api_key_env, "<>")
+        # Utilizza None come fallback predefinito
+        api_key = os.environ.get(cfg.llm_api_key_env, None)
         if not api_key:
             logger.warning(
                 f"Variabile d'ambiente {cfg.llm_api_key_env} non impostata: "
                 f"valutazione LLM saltata."
-            )
+                )
         else:
             solver = GroqLLMSolver(
                 base_url=cfg.llm_base_url,
@@ -607,6 +635,7 @@ def main():
                 api_key=api_key,
                 temperature=getattr(cfg, "llm_temperature", 0.0),
                 max_tokens=getattr(cfg, "llm_max_tokens", 32),
+                reasoning_effort=getattr(cfg, "llm_reasoning_effort", None),
                 timeout_seconds=getattr(cfg, "llm_timeout_seconds", 30),
                 max_retries=getattr(cfg, "llm_max_retries", 3),
                 retry_backoff_seconds=getattr(cfg, "llm_retry_backoff_seconds", 2.0),

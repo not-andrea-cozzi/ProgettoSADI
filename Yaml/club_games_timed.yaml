@@ -1,6 +1,6 @@
 pipeline:
   dataset_dir: "Dataset"
-  holdout_subfolder: "Games_v1"
+  holdout_subfolder: "Games_v1_timed"
   log_file: "club_games_timed.log"
   log_level: "INFO"
 
@@ -10,13 +10,13 @@ engine:
   hash_mb: 256
 
 raw_data:
-  external_csv: "DatasetCreator/RawData/club_games_data.csv.zip"
+  external_csv: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
 
 club_games_timed:
-  output_filename: "club_games_timed_holdout.pt"
-  jsonl_filename: "club_games_timed_holdout.jsonl"
-  skip_games: 10000
-  max_games_to_scan: 3000
+  output_filename: "games_untimed_test_one.pt"
+  jsonl_filename: "games_untimed_test_one.jsonl"
+  skip_games: 0
+  max_games_to_scan: 5000
   pgn_col: "pgn"
   mate_range_min: 1
   mate_range_max: 10
@@ -38,3 +38,4 @@ club_games_timed:
   chunk_games: 200
   checkpoint_every: 50
   pool_join_timeout: 15.0
+  avg_time_by_rating_json: "Dataset/avg_time_by_rating.json"

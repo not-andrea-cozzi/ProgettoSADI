@@ -173,7 +173,7 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
-DatasetCreator/RawData/
+RawData/
 Dataset/
 Modelli/
 Results/

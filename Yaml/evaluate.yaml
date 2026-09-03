@@ -1,7 +1,6 @@
-  dataset_path: "Dataset/Games_v1/club_games_timed_holdout.pt"
+  dataset_path: "Dataset/Games_v1_untimed/games_untimed_test_one.pt"
   checkpoint_dir: "ModelSource/Checkpoints"
-  plots_dir: "Results/Games"
-  out_dir: "Results/Games"
+  out_dir: "Results/Games_v1_untimed"
   batch_size: 64
   num_workers: 4
   hidden_dim: 128
