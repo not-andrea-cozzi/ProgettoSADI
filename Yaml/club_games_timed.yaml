@@ -6,15 +6,15 @@ pipeline:
 
 engine:
   stockfish_path: "/usr/games/stockfish"
-  threads: 3
-  hash_mb: 256
+  threads: 6
+  hash_mb: 128
 
 raw_data:
   external_csv: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
 
 club_games_timed:
-  output_filename: "games_untimed_test_one.pt"
-  jsonl_filename: "games_untimed_test_one.jsonl"
+  output_filename: "games_timed_test_one.pt"
+  jsonl_filename: "games_imed_test_one.jsonl"
   skip_games: 0
   max_games_to_scan: 5000
   pgn_col: "pgn"
@@ -22,7 +22,7 @@ club_games_timed:
   mate_range_max: 10
   time_limit_seconds: 0.2
   default_move_seconds: 15.0
-  require_clock: false
+  require_clock: true
   min_ply: 0
   ply_sample_step: 3
   max_positions_per_game: 20

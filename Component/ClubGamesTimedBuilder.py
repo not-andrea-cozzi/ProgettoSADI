@@ -1,28 +1,41 @@
 """
 ClubGamesTimedBuilder.py
 
-Costruisce un dataset esterno di validazione da
-DatasetCreator/RawData/club_games_data.csv.zip (colonna "pgn", una partita
-chess.com per riga, stesso file gia' usato da ExternalHoldoutBuilder per
-l'held-out mate 1-10) MA con una differenza fondamentale: qui si usa il
-CLOCK REALE per-mossa (commenti {[%clk H:MM:SS]} chess.com) per calcolare
-move_duration, esattamente come fa ChessAnalysisPipeline.py per il dataset
-di TRAIN (games_pipeline) -- ExternalHoldoutBuilder invece ignora il tempo
-(clock_seconds=0.0 costante).
+Costruisce un dataset esterno di validazione da varie sorgenti PGN (CSV
+chess.com, PGN grezzo Lichess/.zst, PGN grezzo FICS/.bz2) usando il CLOCK
+REALE per-mossa per calcolare move_duration, esattamente come fa
+ChessAnalysisPipeline.py per il dataset di TRAIN (games_pipeline) --
+ExternalHoldoutBuilder invece ignora il tempo (clock_seconds=0.0 costante).
 
 Motivazione: dato che in training timed batte untimed ma sul test interno
 succede l'opposto, questo dataset serve a verificare la stessa metrica
-(move accuracy timed vs untimed, stratificata per mate_n) su partite
-chess.com MAI viste in training, con segnale temporale reale e non
-fittizio -- a differenza sia di HFFenDatasetBuilder (clock costante) sia
-di ExternalHoldoutBuilder (clock_seconds=0.0).
+(move accuracy timed vs untimed, stratificata per mate_n) su partite MAI
+viste in training, con segnale temporale reale e non fittizio -- a
+differenza sia di HFFenDatasetBuilder (clock costante) sia di
+ExternalHoldoutBuilder (clock_seconds=0.0).
 
-Skip iniziale: le prime `skip_games` righe del CSV vengono saltate. Questo
-e' pensato per evitare overlap con l'held-out gia' generato da
-ExternalHoldoutBuilder, che di default scansiona le partite a partire
-dall'inizio del file (vedi Yaml/main.yaml -> external_holdout.max_games_to_scan).
-Con skip_games=10000 si valida su una fetta del CSV diversa da quella gia'
-usata per l'held-out esistente.
+TAG PGN PER IL TEMPO PER-MOSSA -- due convenzioni distinte supportate:
+
+  - {[%clk H:MM:SS]}  (Lichess, chess.com): tempo RIMANENTE sull'orologio
+    dopo quella mossa. move_duration si ricava per differenza rispetto al
+    clock precedente dello stesso giocatore (piu' l'eventuale increment):
+        spent = previous_clock - current_clock + increment
+
+  - {[%emt H:MM:SS]}  (FICS Games Database, comando PGN "Elapsed Move
+    Time", vedi ficsgames.org/pgnsupp.txt): e' GIA' la durata della
+    singola mossa. Nessuna sottrazione necessaria: move_duration = emt
+    direttamente. E' il formato usato dai dump "movetimes" di FICS
+    (es. ficsgamesdb_*_movetimes_*.pgn.bz2); i dump "nomovetimes" non
+    hanno ne' %clk ne' %emt e ricadono quindi sempre sul fallback
+    rating-bucket / costante.
+
+Quando un commento contiene entrambi i tag (capita in dump riconvertite),
+%emt ha priorita' perche' e' la misura diretta della mossa; %clk+diff resta
+come fallback solo se %emt non e' presente.
+
+Skip iniziale: le prime `skip_games` righe/partite vengono saltate. Questo
+e' pensato per evitare overlap con altri dataset gia' generati dalla stessa
+sorgente (vedi Yaml/main.yaml -> external_holdout.max_games_to_scan).
 
 A differenza di HFFenDatasetBuilder (che riceveva solo una FEN + una mossa
 per riga, senza contesto di partita), qui si riusa lo stesso schema di
@@ -79,7 +92,7 @@ from DatasetCreator.GraphBuilder import GraphBuilder
 #   - .pgn.zst                 -> PGN grezzo compresso zstd (dump Lichess standard,
 #                                  es. lichess_db_standard_rated_2013-11.pgn.zst)
 #   - .pgn.bz2                 -> PGN grezzo compresso bzip2 (dump FICS, es.
-#                                  ficsgamesdb_201701_chess_nomovetimes_4339524.pgn.bz2)
+#                                  ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2)
 #
 # In tutti i casi _read_pgn_rows() normalizza l'output a una lista di coppie
 # (indice, pgn_text) cosi' che _worker() resti identico indipendentemente
@@ -104,7 +117,13 @@ _watchdog_thread: Optional[threading.Thread] = None
 _WATCHDOG_POLL_SECONDS = 1.0
 _WATCHDOG_MARGIN_SECONDS = 3.0
 
+# %clk: tempo RIMANENTE sull'orologio (Lichess, chess.com).
 _CLK_RE = re.compile(r"\[\s*%clk\s+(\d+):(\d+):(\d+(?:\.\d+)?)\s*\]")
+# %emt: tempo SPESO sulla mossa (FICS Games Database, "Elapsed Move Time").
+# Stesso formato h:mm:ss, secondi con eventuali decimali; nei dump FICS
+# osservati compare tipicamente come HH:MM:SS a due cifre ma il pattern
+# accetta anche H singolo per coerenza con la spec PGN supplement.
+_EMT_RE = re.compile(r"\[\s*%emt\s+(\d+):(\d+):(\d+(?:\.\d+)?)\s*\]")
 
 
 def _watchdog_arm(time_limit: float, margin: Optional[float] = None) -> None:
@@ -187,8 +206,9 @@ class _ClosingStream:
 
 
 class ClubGamesTimedBuilder:
-    """Costruisce un .pt di validazione esterna da club_games_data.csv.zip
-    usando il clock reale per-mossa (move_duration), non un valore fittizio."""
+    """Costruisce un .pt di validazione esterna usando il clock reale
+    per-mossa (move_duration), non un valore fittizio, quando disponibile
+    nella sorgente (%clk o %emt a seconda del provider)."""
 
     _PIECE_VALUES: Dict[int, int] = {
         chess.PAWN: 1,
@@ -243,7 +263,7 @@ class ClubGamesTimedBuilder:
             avg_time_by_rating: dizionario {bucket_rating: secondi_medi},
                 stesso formato prodotto da TimeStatBuilder.build_and_save()
                 (es. avg_time_by_rating.json). Quando una mossa non ha
-                %clk annotato, invece di usare il valore fisso
+                ne' %emt ne' %clk annotato, invece di usare il valore fisso
                 default_move_seconds per TUTTE le posizioni, si usa il
                 tempo medio del bucket di rating piu' vicino al rating
                 (WhiteElo/BlackElo, letto dagli header PGN) del giocatore
@@ -352,14 +372,29 @@ class ClubGamesTimedBuilder:
         _watchdog_thread.start()
 
     # ================================================================
-    # CLOCK / TIME CONTROL (identico a ChessAnalysisPipeline)
+    # CLOCK / TIME CONTROL
     # ================================================================
 
     @staticmethod
     def _parse_clock(comment: str) -> Optional[float]:
+        """Estrae %clk (tempo RIMANENTE) da un commento PGN."""
         if not comment:
             return None
         match = _CLK_RE.search(comment)
+        if not match:
+            return None
+        hours, minutes, seconds = match.groups()
+        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+    @staticmethod
+    def _parse_emt(comment: str) -> Optional[float]:
+        """Estrae %emt (tempo SPESO sulla mossa, gia' una durata) da un
+        commento PGN. Formato FICS Games Database (pgnsupp.txt: 'Elapsed
+        Move Time'). A differenza di %clk, il valore ritornato NON richiede
+        alcuna sottrazione con lo stato precedente: e' gia' move_duration."""
+        if not comment:
+            return None
+        match = _EMT_RE.search(comment)
         if not match:
             return None
         hours, minutes, seconds = match.groups()
@@ -381,13 +416,16 @@ class ClubGamesTimedBuilder:
     def _compute_move_duration(
         previous_clock: Optional[float], current_clock: Optional[float], increment: float
     ) -> Optional[float]:
+        """Deriva la durata della mossa da due letture consecutive di %clk
+        (tempo rimanente). Non usato quando %emt e' disponibile, perche' in
+        quel caso la durata e' gia' data direttamente."""
         if previous_clock is None or current_clock is None:
             return None
         spent = previous_clock - current_clock + increment
         return max(0.0, spent)
 
     # ================================================================
-    # FALLBACK CLOCK VIA RATING (usato quando manca %clk nel PGN)
+    # FALLBACK CLOCK VIA RATING (usato quando manca sia %emt che %clk)
     # ================================================================
 
     @staticmethod
@@ -414,8 +452,9 @@ class ClubGamesTimedBuilder:
         return self.avg_time_by_rating[closest_bucket]
 
     def _fallback_clock_seconds(self, mover_rating: Optional[int]) -> float:
-        """Tempo da usare quando la mossa non ha %clk annotato: bucket per
-        rating se disponibile, altrimenti default_move_seconds costante."""
+        """Tempo da usare quando la mossa non ha ne' %emt ne' %clk annotato:
+        bucket per rating se disponibile, altrimenti default_move_seconds
+        costante."""
         bucket_time = self._closest_bucket_time(mover_rating)
         return bucket_time if bucket_time is not None else self.default_move_seconds
 
@@ -529,8 +568,22 @@ class ClubGamesTimedBuilder:
             comment = next_node.comment or ""
             mover_color = board.turn
 
+            # --- durata mossa: %emt ha priorita' (misura diretta), %clk e'
+            # il fallback via differenza col clock precedente dello stesso
+            # colore. I due tag non sono mai entrambi usati per lo stesso
+            # calcolo: se %emt e' presente, %clk (se c'e') viene comunque
+            # letto per mantenere aggiornato previous_clock, ma non concorre
+            # a determinare move_duration.
+            emt_seconds = self._parse_emt(comment)
             current_clock = self._parse_clock(comment)
-            move_duration = self._compute_move_duration(previous_clock[mover_color], current_clock, increment)
+
+            if emt_seconds is not None:
+                move_duration = emt_seconds
+                duration_is_emt = True
+            else:
+                move_duration = self._compute_move_duration(previous_clock[mover_color], current_clock, increment)
+                duration_is_emt = False
+
             if current_clock is not None:
                 previous_clock[mover_color] = current_clock
 
@@ -540,7 +593,7 @@ class ClubGamesTimedBuilder:
             if (node.ply() - self.min_ply) % self.ply_sample_step != 0:
                 node = next_node
                 continue
-            if self.require_clock and current_clock is None:
+            if self.require_clock and move_duration is None:
                 node = next_node
                 continue
             if self.max_positions_per_game is not None and positions_analysed >= self.max_positions_per_game:
@@ -587,7 +640,7 @@ class ClubGamesTimedBuilder:
 
             if move_duration is not None:
                 clock_seconds = move_duration
-                clock_source = "real"
+                clock_source = "real_emt" if duration_is_emt else "real_clk"
             else:
                 rating_bucket_time = self._closest_bucket_time(mover_rating[mover_color])
                 if rating_bucket_time is not None:
@@ -922,6 +975,7 @@ class ClubGamesTimedBuilder:
         for d in found_data:
             source_counts[getattr(d, "clock_source", "unknown")] += 1
         total_n = max(len(found_data), 1)
+        real_total = source_counts["real_emt"] + source_counts["real_clk"]
 
         print(
             f"Scansione completata: {processed_games} partite processate "
@@ -931,8 +985,16 @@ class ClubGamesTimedBuilder:
         print(f"Distribuzione per n: {dist_str}.")
         print("Origine del clock per posizione:")
         print(
-            f"  - reale (%clk nel PGN):        {source_counts['real']}/{total_n} "
-            f"({100 * source_counts['real'] / total_n:.1f}%)"
+            f"  - reale, totale:               {real_total}/{total_n} "
+            f"({100 * real_total / total_n:.1f}%)"
+        )
+        print(
+            f"      di cui da %emt (FICS):     {source_counts['real_emt']}/{total_n} "
+            f"({100 * source_counts['real_emt'] / total_n:.1f}%)"
+        )
+        print(
+            f"      di cui da %clk (Lichess/chess.com): {source_counts['real_clk']}/{total_n} "
+            f"({100 * source_counts['real_clk'] / total_n:.1f}%)"
         )
         print(
             f"  - stimato da rating (bucket):  {source_counts['rating_bucket']}/{total_n} "
@@ -942,7 +1004,7 @@ class ClubGamesTimedBuilder:
         print(
             f"  - costante fissa:              {source_counts['default_constant']}/{total_n} "
             f"({100 * source_counts['default_constant'] / total_n:.1f}%) "
-            f"(default_move_seconds={self.default_move_seconds}, usato quando manca sia %clk "
+            f"(default_move_seconds={self.default_move_seconds}, usato quando manca sia %emt/%clk "
             f"sia un rating valido o avg_time_by_rating non e' stato fornito)"
         )
         print(f"Testuale salvato in {self.jsonl_out_path}.")
