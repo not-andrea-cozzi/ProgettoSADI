@@ -17,8 +17,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
-from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-from Training_TestModel.TimeChainGnn import TimedPolicyGNN
+from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from ModelUtils.TimeChainGnn import TimedPolicyGNN
 
 logging.basicConfig(
     level=logging.INFO,
@@ -309,7 +309,10 @@ def load_dataset_from_pt(
     )
 
 
+
+
 def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
+    """Restituisce l'indice globale dello score massimo per ogni grafo."""
     best_score = scores.new_full((num_graphs,), float("-inf"))
     best_score.scatter_reduce_(0, edge_batch, scores, reduce="amax", include_self=True)
 
@@ -369,7 +372,7 @@ def evaluate_model(
     rating_all = []
     has_rating = True
 
-    from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+    from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 
     with torch.no_grad():
         for batch in loader:

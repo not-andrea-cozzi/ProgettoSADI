@@ -1,0 +1,40 @@
+pipeline:
+  dataset_dir: "Dataset"
+  holdout_subfolder: "Games_v1"
+  log_file: "club_games_timed.log"
+  log_level: "INFO"
+
+engine:
+  stockfish_path: "/usr/games/stockfish"
+  threads: 3
+  hash_mb: 256
+
+raw_data:
+  external_csv: "DatasetCreator/RawData/club_games_data.csv.zip"
+
+club_games_timed:
+  output_filename: "club_games_timed_holdout.pt"
+  jsonl_filename: "club_games_timed_holdout.jsonl"
+  skip_games: 10000
+  max_games_to_scan: 3000
+  pgn_col: "pgn"
+  mate_range_min: 1
+  mate_range_max: 10
+  time_limit_seconds: 0.2
+  default_move_seconds: 15.0
+  require_clock: false
+  min_ply: 0
+  ply_sample_step: 3
+  max_positions_per_game: 20
+  min_game_plies: 20
+  only_decisive_games: true
+  skip_time_forfeit: true
+  max_piece_count: 18
+  min_material_for_mate_attempt: 4
+  candidate_min_legal_moves: 1
+  candidate_max_legal_moves: null
+  skip_if_in_check: false
+  workers: null
+  chunk_games: 200
+  checkpoint_every: 50
+  pool_join_timeout: 15.0

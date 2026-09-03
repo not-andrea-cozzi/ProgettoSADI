@@ -37,10 +37,10 @@ class EvaluatorPlotter:
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Stratifica i risultati flat per profondità di matto (n).
-        Depths coprono l'intervallo [0, max_n - 1].
+        Depths coprono l'intervallo [1, max_n].
         Ritorna: (depths, move_accs, mate_accs, counts, corrects_move)
         """
-        depths = np.arange(0, max_n)
+        depths = np.arange(1, max_n + 1)
         move_accs = np.full(max_n, np.nan)
         mate_accs = np.full(max_n, np.nan)
         counts = np.zeros(max_n, dtype=np.int64)
@@ -70,7 +70,7 @@ class EvaluatorPlotter:
     # -------------------------------------------------------------------------
 
     def plot_depth_bars(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "bars_per_n.png"):
-        """Plot 1: Barre verticali per vedere risposte giuste / totale per ogni n."""
+        """Plot 1: Barre verticali per vedere risposte giuste / totale per ogni n (da 1 a max_n)."""
         depths, acc_t, _, counts, corrects_t = self._extract_depth_arrays(res_t, max_n)
         _, acc_u, _, _, corrects_u = self._extract_depth_arrays(res_u, max_n)
 
@@ -111,7 +111,7 @@ class EvaluatorPlotter:
         logger.info(f"Salvato {out_path}")
 
     def plot_depth_curves(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "curves_per_n.png"):
-        """Plot 2: Curve di accuracy al variare di n."""
+        """Plot 2: Curve di accuracy al variare di n (da 1 a max_n)."""
         depths, acc_t, _, _, _ = self._extract_depth_arrays(res_t, max_n)
         _, acc_u, _, _, _ = self._extract_depth_arrays(res_u, max_n)
 

@@ -10,12 +10,12 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from Training_TestModel.timegnn.train.early_stopping import EarlyStopping
+from timegnn.train.early_stopping import EarlyStopping
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
-from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-from Training_TestModel.TimeChainGnn import TimedPolicyGNN
-from Training_TestModel.MetricLogger import TrainingMetricsLogger, StratifiedEvaluator
-from ModelUtils.EvaluatorPlotter import EvaluatorPlotter
+from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from ModelUtils.TimeChainGnn import TimedPolicyGNN
+from ModelUtils.MetricLogger import TrainingMetricsLogger
+from ModelUtils.Utils import _argmax_per_graph 
 
 
 def load_config(config_path: str = "train.yaml") -> SimpleNamespace:
@@ -49,20 +49,6 @@ def load_split(data_dir: str, name: str):
     if not os.path.exists(path):
         raise FileNotFoundError(f"File {path} non trovato. Verifica il percorso dati.")
     return torch.load(path, weights_only=False)
-
-
-def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
-    best_score = scores.new_full((num_graphs,), float("-inf"))
-    best_score.scatter_reduce_(0, edge_batch, scores, reduce="amax", include_self=True)
-
-    is_best = scores == best_score[edge_batch]
-    idx_range = torch.arange(scores.size(0), device=scores.device)
-    sentinel = scores.size(0) + 1
-    masked = torch.where(is_best, idx_range, torch.full_like(idx_range, sentinel))
-
-    argmax_global = torch.full((num_graphs,), sentinel, dtype=torch.long, device=scores.device)
-    argmax_global.scatter_reduce_(0, edge_batch, masked, reduce="amin", include_self=True)
-    return argmax_global
 
 
 def run_epoch(
@@ -112,6 +98,9 @@ def run_epoch(
             total_mate_correct += mate_pred_correct.sum().item()
             total_examples += num_graphs
             total_loss += loss.item() * num_graphs
+
+        # Ottimizzazione memoria: pulizia esplicita dei tensori pesanti a fine iterazione
+        del loss, move_scores, mate_logits, inner_batch, chain_edge_index, chain_edge_attr
 
     return (
         total_loss / total_examples,
@@ -262,79 +251,47 @@ def main():
 
     is_cuda = device.type == "cuda"
     use_persistent = cfg.num_workers > 0
+    prefetch = 2 if cfg.num_workers > 0 else None
 
     train_loader = DataLoader(
         train_dataset, batch_size=cfg.batch_size, shuffle=True,
         collate_fn=timed_collate_fn, num_workers=cfg.num_workers,
         pin_memory=is_cuda, persistent_workers=use_persistent,
+        prefetch_factor=prefetch
     )
     val_loader = DataLoader(
         val_dataset, batch_size=cfg.batch_size, shuffle=False,
         collate_fn=timed_collate_fn, num_workers=cfg.num_workers,
         pin_memory=is_cuda, persistent_workers=use_persistent,
+        prefetch_factor=prefetch
     )
 
     metrics_logger = TrainingMetricsLogger(output_dir=cfg.results_dir)
-    timed_model = TimedPolicyGNN(
-        hidden_dim=cfg.hidden_dim, num_layers=cfg.num_layers,
-        lambda_decay=cfg.lambda_decay, use_time=True,
-          ).to(device)
-    ckpt = torch.load(os.path.join(cfg.checkpoint_dir, "timed_best.pt"), map_location=device, weights_only=False)
-    timed_model.load_state_dict(ckpt["model_state"])
-    timed_m_acc = ckpt["best_val_move_acc"]
-    timed_mate_acc = ckpt["best_val_mate_acc"]
 
-    untimed_model = TimedPolicyGNN(
-        hidden_dim=cfg.hidden_dim, num_layers=cfg.num_layers,
-        lambda_decay=cfg.lambda_decay, use_time=False,
-    ).to(device)
-    ckpt = torch.load(os.path.join(cfg.checkpoint_dir, "untimed_best.pt"), map_location=device, weights_only=False)
-    untimed_model.load_state_dict(ckpt["model_state"])
-    untimed_m_acc = ckpt["best_val_move_acc"]
-    untimed_mate_acc = ckpt["best_val_mate_acc"]
+    # 1. Addestramento modello Timed
+    logger.info("Avvio training modello TIMED")
+    timed_model, t_move_acc, t_mate_acc = train_one_config(
+        use_time=True, train_loader=train_loader, val_loader=val_loader,
+        device=device, cfg=cfg, metrics_logger=metrics_logger
+    )
+
+    # 2. Addestramento modello Untimed
+    logger.info("Avvio training modello UNTIMED")
+    untimed_model, u_move_acc, u_mate_acc = train_one_config(
+        use_time=False, train_loader=train_loader, val_loader=val_loader,
+        device=device, cfg=cfg, metrics_logger=metrics_logger
+    )
+
     logger.info("Salvataggio delle metriche di training e generazione dei plot comparativi...")
     metrics_logger.save_metrics_to_disk()
     metrics_logger.plot_training_curves()
 
     logger.info(
         f"Confronto finale Training (Best Val Move Acc / Mate Acc):\n"
-        f" - Con segnale temporale:   Move={timed_m_acc*100:.2f}% | Mate={timed_mate_acc*100:.2f}%\n"
-        f" - Senza segnale temporale: Move={untimed_m_acc*100:.2f}% | Mate={untimed_mate_acc*100:.2f}%"
+        f" - Con segnale temporale:   Move={t_move_acc*100:.2f}% | Mate={t_mate_acc*100:.2f}%\n"
+        f" - Senza segnale temporale: Move={u_move_acc*100:.2f}% | Mate={u_mate_acc*100:.2f}%"
     )
-
-    logger.info("Avvio valutazione stratificata per profondità di matto (n=1..10)...")
-    evaluator = StratifiedEvaluator(device=device, output_dir=os.path.join(cfg.results_dir, "eval"))
-    
-    strat_timed = evaluator.evaluate_stratified_gnn(timed_model, val_loader, max_n=cfg.max_mate_depth_eval)
-    strat_untimed = evaluator.evaluate_stratified_gnn(untimed_model, val_loader, max_n=cfg.max_mate_depth_eval)
-
-    evaluator.plot_and_save_stratified_comparison(
-        timed_results=strat_timed,
-        untimed_results=strat_untimed,
-        llm_results=None,
-        max_n=cfg.max_mate_depth_eval
-    )
-
-    # === INIZIO INTEGRAZIONE EvaluatorPlotter ===
-    logger.info("Generazione grafici aggiuntivi ed export CSV con EvaluatorPlotter...")
-    plots_dir = os.path.join(cfg.results_dir, "eval_plots_extra")
-    metrics_dir = os.path.join(cfg.results_dir, "eval_metrics_extra")
-    
-    plotter = EvaluatorPlotter(plots_dir=plots_dir, out_dir=metrics_dir)
-
-    plotter.plot_depth_bars(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
-    plotter.plot_depth_curves(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
-    plotter.save_depth_metrics(strat_timed, strat_untimed, max_n=cfg.max_mate_depth_eval)
-
-    try:
-        plotter.plot_aggregate_bars(strat_timed, strat_untimed)
-    except KeyError:
-        logger.debug("Plot aggregato saltato (le chiavi globali 'move_acc' o 'mate_acc' mancano nei risultati).")
-
-    # === FINE INTEGRAZIONE ===
-
-    logger.info("Valutazione completata. Grafici e metriche esportati con successo.")
-
+    logger.info("Training completato. Utilizzare EvaluateModel.py per l'analisi stratificata.")
 
 if __name__ == "__main__":
     main()

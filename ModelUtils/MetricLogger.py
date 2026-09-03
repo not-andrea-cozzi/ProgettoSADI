@@ -7,21 +7,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
-
-
-def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
-    best_score = scores.new_full((num_graphs,), float("-inf"))
-    best_score.scatter_reduce_(0, edge_batch, scores, reduce="amax", include_self=True)
-
-    is_best = scores == best_score[edge_batch]
-    idx_range = torch.arange(scores.size(0), device=scores.device)
-    sentinel = scores.size(0) + 1
-    masked = torch.where(is_best, idx_range, torch.full_like(idx_range, sentinel))
-
-    argmax_global = torch.full((num_graphs,), sentinel, dtype=torch.long, device=scores.device)
-    argmax_global.scatter_reduce_(0, edge_batch, masked, reduce="amin", include_self=True)
-    return argmax_global
+from ModelUtils.PolicyGNN import policy_targets_to_global_index
+from ModelUtils.Utils import _argmax_per_graph  
 
 
 class TrainingMetricsLogger:
@@ -34,7 +21,6 @@ class TrainingMetricsLogger:
         self.plots_dir = os.path.join(output_dir, "plots")
         os.makedirs(self.plots_dir, exist_ok=True)
         
-        # Struttura dati per le metriche per configurazione
         self.history: Dict[str, Dict[str, List[float]]] = {
             "timed": {
                 "train_loss": [], "val_loss": [],
@@ -48,18 +34,8 @@ class TrainingMetricsLogger:
             }
         }
 
-    def log_epoch(
-        self,
-        tag: str,
-        epoch: int,
-        train_loss: float,
-        train_move_acc: float,
-        train_mate_acc: float,
-        val_loss: float,
-        val_move_acc: float,
-        val_mate_acc: float
-    ) -> None:
-        """Registra i valori scalari per l'epoca corrente."""
+    def log_epoch(self, tag: str, epoch: int, train_loss: float, train_move_acc: float, 
+                  train_mate_acc: float, val_loss: float, val_move_acc: float, val_mate_acc: float) -> None:
         if tag not in self.history:
             self.history[tag] = {k: [] for k in self.history["timed"].keys()}
 
@@ -71,12 +47,10 @@ class TrainingMetricsLogger:
         self.history[tag]["val_mate_acc"].append(val_mate_acc)
 
     def save_metrics_to_disk(self) -> None:
-        """Esporta la cronologia completa in JSON e CSV."""
         json_path = os.path.join(self.output_dir, "training_history.json")
         with open(json_path, "w") as f:
             json.dump(self.history, f, indent=4)
 
-        # Esportazione CSV
         csv_path = os.path.join(self.output_dir, "training_history.csv")
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
@@ -92,7 +66,6 @@ class TrainingMetricsLogger:
                     ])
 
     def plot_training_curves(self) -> None:
-        """Genera e salva i grafici comparativi (Loss, Move Accuracy, Mate Accuracy)."""
         metrics_to_plot = [
             ("loss", "Loss", ["train_loss", "val_loss"]),
             ("move_acc", "Move Prediction Accuracy", ["train_move_acc", "val_move_acc"]),
@@ -122,29 +95,15 @@ class TrainingMetricsLogger:
 
 
 class StratifiedEvaluator:
-    """
-    Valuta i modelli su un held-out test set stratificando le metriche
-    in base alla profondità del matto (n da 1 a 10).
-    Permette inoltre di integrare i risultati di un LLM baseline.
-    """
     def __init__(self, device: torch.device, output_dir: str = "results/eval"):
         self.device = device
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
     @torch.no_grad()
-    def evaluate_stratified_gnn(
-        self,
-        model: torch.nn.Module,
-        test_loader: DataLoader,
-        max_n: int = 10
-    ) -> Dict[int, Dict[str, float]]:
-        """
-        Valuta il modello GNN calcolando Accuracy di mossa e di matto per ciascun valore di n.
-        """
+    def evaluate_stratified_gnn(self, model: torch.nn.Module, test_loader: DataLoader, max_n: int = 10) -> Dict[int, Dict[str, float]]:
         model.eval()
         
-        # Statistiche per profondità n
         correct_moves = {n: 0 for n in range(1, max_n + 1)}
         correct_mates = {n: 0 for n in range(1, max_n + 1)}
         total_counts = {n: 0 for n in range(1, max_n + 1)}
@@ -164,7 +123,6 @@ class StratifiedEvaluator:
             mate_target = inner_batch.mate_n.clamp(0, mate_logits.size(-1) - 1)
             is_mate_correct = (mate_logits.argmax(dim=-1) == mate_target).cpu().numpy()
 
-            # Raggruppamento per n
             mate_n_values = inner_batch.mate_n.cpu().numpy()
             for i, n_val in enumerate(mate_n_values):
                 if 1 <= n_val <= max_n:
@@ -172,7 +130,6 @@ class StratifiedEvaluator:
                     correct_mates[n_val] += int(is_mate_correct[i])
                     total_counts[n_val] += 1
 
-        # Calcolo percentuali
         stratified_results = {}
         for n in range(1, max_n + 1):
             count = total_counts[n]
@@ -184,18 +141,7 @@ class StratifiedEvaluator:
 
         return stratified_results
 
-    def plot_and_save_stratified_comparison(
-        self,
-        timed_results: Dict[int, Dict[str, float]],
-        untimed_results: Dict[int, Dict[str, float]],
-        llm_results: Optional[Dict[int, float]] = None,
-        max_n: int = 10
-    ) -> None:
-        """
-        Salva i risultati stratificati in formato JSON e genera il Bar Chart
-        comparativo (GNN Timed vs GNN Untimed vs LLM Baseline) per ogni valore di n.
-        """
-        # 1. Esportazione JSON
+    def plot_and_save_stratified_comparison(self, timed_results: Dict[int, Dict[str, float]], untimed_results: Dict[int, Dict[str, float]], llm_results: Optional[Dict[int, float]] = None, max_n: int = 10) -> None:
         combined_data = {
             "timed": timed_results,
             "untimed": untimed_results,
@@ -204,7 +150,6 @@ class StratifiedEvaluator:
         with open(os.path.join(self.output_dir, "stratified_comparison.json"), "w") as f:
             json.dump(combined_data, f, indent=4)
 
-        # 2. Bar Chart per Move Accuracy per n
         n_values = np.arange(1, max_n + 1)
         timed_acc = [timed_results[n]["move_acc"] * 100 for n in n_values]
         untimed_acc = [untimed_results[n]["move_acc"] * 100 for n in n_values]

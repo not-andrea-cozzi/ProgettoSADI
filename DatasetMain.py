@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from Training_TestModel.timegnn.core import pipeline
+from timegnn.core import pipeline
 import torch
 import zstandard as zstd
 from tqdm import tqdm
@@ -261,7 +261,7 @@ def main():
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
-    """
+    
     def _step_games_pipeline():
         require_file(raw_cfg["games_zst"], "Archivio PGN mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
@@ -310,7 +310,7 @@ def main():
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
             do_fn=_step_games_pipeline,
         )
-    """
+    
 
     # Step 3: Decompressione puzzle Lichess
     def _step_decompress_puzzles():

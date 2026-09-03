@@ -1,8 +1,8 @@
 # Configurazione per il training del modello TimedPolicyGNN
 data_dir: "Dataset/Train"
 time_stats_json: "Dataset/avg_time_by_rating.json"
-checkpoint_dir: "Modelli/Checkpoints"
-results_dir: "Modelli/Results"
+checkpoint_dir: "Modelli_Andrea/Checkpoints"
+results_dir: "Modelli_Andrea/Results"
 
 epochs: 50
 batch_size: 64
