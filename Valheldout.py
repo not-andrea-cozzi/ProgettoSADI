@@ -594,7 +594,7 @@ def main():
 
     solver = None
     if getattr(cfg, "llm_enabled", False):
-        api_key = os.environ.get(cfg.llm_api_key_env, "")
+        api_key = os.environ.get(cfg.llm_api_key_env, "<>")
         if not api_key:
             logger.warning(
                 f"Variabile d'ambiente {cfg.llm_api_key_env} non impostata: "
