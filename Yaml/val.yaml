@@ -16,11 +16,12 @@ max_mate_depth_eval: 10
 llm_enabled: true
 llm_provider: "groq"
 llm_base_url: "https://api.groq.com/openai/v1/chat/completions"
-llm_model: "openai/gpt-oss-20b"
+llm_model: "groq/compound-mini"
 llm_api_key_env: "GROQ_API_KEY"
 llm_temperature: 0.0
 llm_max_tokens: 32
 llm_timeout_seconds: 30
 llm_max_retries: 3
 llm_retry_backoff_seconds: 2.0
-llm_request_delay_seconds: 0.0
+llm_request_delay_seconds: 0.5
+llm_reasoning_effort: null

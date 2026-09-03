@@ -5,74 +5,74 @@
     "error": null
   },
   "chesscom_86_69": {
-    "raw_text": "",
+    "raw_text": "qxe1+",
     "pred_move_uci": "",
     "error": null
   },
   "chesscom_129_96": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "c3c5",
+    "pred_move_uci": "c3c5",
     "error": null
   },
   "chesscom_127_99": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "h8h7",
+    "pred_move_uci": "h8h7",
     "error": null
   },
   "chesscom_142_69": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "e3d3",
+    "pred_move_uci": "e3d3",
     "error": null
   },
   "chesscom_140_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5635, Req"
   },
   "chesscom_144_72": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f5c8",
+    "pred_move_uci": "f5c8",
     "error": null
   },
   "chesscom_117_189": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6646, Req"
   },
   "chesscom_157_75": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "e1e4",
+    "pred_move_uci": "e1e4",
     "error": null
   },
   "chesscom_165_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6453, Req"
   },
   "chesscom_169_93": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "e7e2",
+    "pred_move_uci": "e7e2",
     "error": null
   },
   "chesscom_179_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5761, Req"
   },
   "chesscom_171_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 4758, Req"
   },
   "chesscom_185_63": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f8f5",
+    "pred_move_uci": "f8f5",
     "error": null
   },
   "chesscom_180_123": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5303, Req"
   },
   "chesscom_225_60": {
     "raw_text": "",
@@ -82,7 +82,7 @@
   "chesscom_238_45": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5430, Req"
   },
   "chesscom_257_45": {
     "raw_text": "",
@@ -92,7 +92,7 @@
   "chesscom_200_126": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5442, Req"
   },
   "chesscom_200_150": {
     "raw_text": "",
@@ -102,12 +102,12 @@
   "chesscom_252_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5984, Req"
   },
   "chesscom_266_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5106, Req"
   },
   "chesscom_242_90": {
     "raw_text": "",
@@ -117,7 +117,7 @@
   "chesscom_270_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5803, Req"
   },
   "chesscom_277_60": {
     "raw_text": "",
@@ -127,7 +127,7 @@
   "chesscom_272_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5947, Req"
   },
   "chesscom_287_69": {
     "raw_text": "",
@@ -137,27 +137,27 @@
   "chesscom_302_87": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5811, Req"
   },
   "chesscom_310_96": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f7h7",
+    "pred_move_uci": "f7h7",
     "error": null
   },
   "chesscom_307_105": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5639, Req"
   },
   "chesscom_319_72": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "g3g7",
+    "pred_move_uci": "g3g7",
     "error": null
   },
   "chesscom_325_90": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5201, Req"
   },
   "chesscom_321_84": {
     "raw_text": "",
@@ -167,12 +167,12 @@
   "chesscom_313_117": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5933, Req"
   },
   "chesscom_327_75": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 4765, Req"
   },
   "chesscom_330_78": {
     "raw_text": "",
@@ -182,7 +182,7 @@
   "chesscom_326_87": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5803, Req"
   },
   "chesscom_328_99": {
     "raw_text": "",
@@ -192,7 +192,7 @@
   "chesscom_343_99": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5568, Req"
   },
   "chesscom_363_78": {
     "raw_text": "",
@@ -202,22 +202,22 @@
   "chesscom_350_126": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6128, Req"
   },
   "chesscom_354_111": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5248, Req"
   },
   "chesscom_379_78": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "e7f8",
+    "pred_move_uci": "e7f8",
     "error": null
   },
   "chesscom_368_150": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5018, Req"
   },
   "chesscom_382_78": {
     "raw_text": "",
@@ -227,7 +227,7 @@
   "chesscom_390_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5800, Req"
   },
   "chesscom_391_66": {
     "raw_text": "",
@@ -237,27 +237,27 @@
   "chesscom_384_123": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5589, Req"
   },
   "chesscom_421_78": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "h6c6",
+    "pred_move_uci": "h6c6",
     "error": null
   },
   "chesscom_400_96": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5574, Req"
   },
   "chesscom_461_60": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "e4f6",
+    "pred_move_uci": "e4f6",
     "error": null
   },
   "chesscom_466_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5737, Req"
   },
   "chesscom_475_102": {
     "raw_text": "",
@@ -267,12 +267,12 @@
   "chesscom_473_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5795, Req"
   },
   "chesscom_476_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 4733, Req"
   },
   "chesscom_476_114": {
     "raw_text": "",
@@ -282,7 +282,7 @@
   "chesscom_488_102": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5491, Req"
   },
   "chesscom_499_96": {
     "raw_text": "",
@@ -292,17 +292,17 @@
   "chesscom_497_81": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5772, Req"
   },
   "chesscom_522_63": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "c2g2",
+    "pred_move_uci": "c2g2",
     "error": null
   },
   "chesscom_507_90": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5349, Req"
   },
   "chesscom_507_126": {
     "raw_text": "",
@@ -312,7 +312,7 @@
   "chesscom_528_63": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5305, Req"
   },
   "chesscom_534_123": {
     "raw_text": "",
@@ -322,31 +322,31 @@
   "chesscom_557_66": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5643, Req"
   },
   "chesscom_542_93": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f7g7",
+    "pred_move_uci": "f7g7",
     "error": null
   },
   "chesscom_515_180": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5651, Req"
   },
   "chesscom_568_66": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f7e8",
+    "pred_move_uci": "f7e8",
     "error": null
   },
   "chesscom_554_66": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5506, Req"
   },
   "chesscom_580_66": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "f7a7",
+    "pred_move_uci": "f7a7",
     "error": null
   },
   "chesscom_584_72": {
@@ -357,22 +357,22 @@
   "chesscom_584_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6081, Req"
   },
   "chesscom_573_126": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5189, Req"
   },
   "chesscom_573_138": {
-    "raw_text": "",
-    "pred_move_uci": "",
+    "raw_text": "d7d8q",
+    "pred_move_uci": "d7d8q",
     "error": null
   },
   "chesscom_589_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 4900, Req"
   },
   "chesscom_582_123": {
     "raw_text": "",
@@ -382,27 +382,27 @@
   "chesscom_590_99": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5729, Req"
   },
   "chesscom_590_105": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99487,"
   },
   "chesscom_588_117": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99479,"
   },
   "chesscom_626_102": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99472,"
   },
   "chesscom_644_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99465,"
   },
   "chesscom_644_66": {
     "raw_text": "",
@@ -412,537 +412,537 @@
   "chesscom_675_117": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99969,"
   },
   "chesscom_675_129": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99962,"
   },
   "chesscom_692_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99955,"
   },
   "chesscom_706_51": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99947,"
   },
   "chesscom_697_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99940,"
   },
   "chesscom_702_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99933,"
   },
   "chesscom_708_87": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99925,"
   },
   "chesscom_714_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99918,"
   },
   "chesscom_705_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_730_84": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_744_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_722_126": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_763_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_745_156": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_772_90": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_772_102": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_772_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_772_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_805_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_819_51": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_808_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_815_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_823_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_825_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_831_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_846_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_856_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_864_75": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_809_147": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_832_132": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_834_132": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_863_117": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_867_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_899_63": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_899_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_882_123": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_920_66": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_914_129": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_939_105": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_953_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_963_123": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_968_117": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_968_165": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_968_171": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_984_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_976_126": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_976_132": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_979_150": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1030_84": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1028_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1059_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1060_135": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1060_141": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1062_81": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1076_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1076_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1093_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1087_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1115_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1117_63": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1123_39": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1120_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1133_75": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99518,"
   },
   "chesscom_1132_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1132_99": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1166_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1146_108": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1147_147": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1171_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1207_75": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1310_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1377_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1386_45": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1392_66": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1366_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1430_42": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1430_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1430_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1443_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1441_102": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1471_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1531_90": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1555_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1563_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1549_120": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1606_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1668_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1688_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1669_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1706_69": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1756_51": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1766_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1804_90": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1843_81": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1852_54": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1896_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1897_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1937_78": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1970_48": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1976_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_1985_81": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2063_57": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2086_93": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2163_96": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2150_114": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2178_81": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2232_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2248_81": {
     "raw_text": "",
@@ -962,41 +962,41 @@
   "chesscom_2308_141": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2328_111": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2388_105": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2483_123": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2801_42": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2836_60": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2862_72": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   },
   "chesscom_2958_48": {
     "raw_text": "",
     "pred_move_uci": "",
-    "error": null
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `groq/compound-mini` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on requests per day (RPD): Limit 250, Used 250, Request"
   }
 }

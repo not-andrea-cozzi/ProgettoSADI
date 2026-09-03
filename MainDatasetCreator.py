@@ -394,6 +394,7 @@ def main():
             out_pt=holdout_path,
             mate_range=mate_holdout_range,
             time_limit=holdout_cfg.get("time_limit_seconds", 0.3),
+            avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
             pgn_col=holdout_cfg.get("pgn_col", "pgn"),
             max_games_to_scan=holdout_cfg.get("max_games_to_scan", 1200),
             target_total_problems=holdout_cfg.get("target_total_problems", 200),

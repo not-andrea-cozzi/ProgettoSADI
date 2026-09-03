@@ -17,6 +17,14 @@ from tqdm import tqdm
 
 from DatasetCreator.GraphBuilder import GraphBuilder
 
+def _closest_bucket_time(rating: Optional[int], avg_time_by_rating: Dict[int, float], default: float) -> float:
+    """Trova il tempo medio del bucket di rating piu' vicino. Fallback su 'default'
+    se rating e' None o il dizionario e' vuoto."""
+    if rating is None or not avg_time_by_rating:
+        return default
+    closest_bucket = min(avg_time_by_rating.keys(), key=lambda b: abs(b - rating))
+    return avg_time_by_rating[closest_bucket]
+
 _engine: Optional[chess.engine.SimpleEngine] = None
 _engine_pid: Optional[int] = None
 
@@ -85,6 +93,8 @@ class ExternalHoldoutBuilder:
         out_pt: str,
         mate_range: Tuple[int, int] = (1, 10),
         time_limit: float = 0.3,
+        avg_time_by_rating: Optional[Dict[int, float]] = None,
+        default_clock_seconds: float = 6.66,
         pgn_col: str = "pgn",
         max_games_to_scan: Optional[int] = None,
         target_total_problems: int = 200,
@@ -130,7 +140,8 @@ class ExternalHoldoutBuilder:
         cpu_count = os.cpu_count() or 2
         self.workers = workers or max(1, cpu_count - 1)
         self.chunk_games = chunk_games
-
+        self.avg_time_by_rating = avg_time_by_rating or {}
+        self.default_clock_seconds = default_clock_seconds
         self._validate_parameters()
 
     def _validate_parameters(self) -> None:
@@ -205,7 +216,7 @@ class ExternalHoldoutBuilder:
 
     @staticmethod
     def _analyse_game(
-        args: Tuple[int, str, int, int, float, bool, int, int, Optional[int], int, Optional[int], bool],
+        args: Tuple[int, str, int, int, float, bool, int, int, Optional[int], int, Optional[int], bool, Dict[int, float], float],
     ) -> Tuple[int, List[Dict[str, Any]]]:
         (
             game_idx,
@@ -220,6 +231,8 @@ class ExternalHoldoutBuilder:
             candidate_min_legal_moves,
             candidate_max_legal_moves,
             skip_if_in_check,
+            avg_time_by_rating,
+            default_clock_seconds,
         ) = args
         global _engine
 
@@ -235,6 +248,16 @@ class ExternalHoldoutBuilder:
 
         found: List[Dict[str, Any]] = []
         node = game
+        white_elo_raw = game.headers.get("WhiteElo", "")
+        black_elo_raw = game.headers.get("BlackElo", "")
+        try:
+            white_elo = int(white_elo_raw)
+        except ValueError:
+            white_elo = None
+        try:
+            black_elo = int(black_elo_raw)
+        except ValueError:
+            black_elo = None
         while node.variations:
             nxt = node.variation(0)
 
@@ -286,7 +309,11 @@ class ExternalHoldoutBuilder:
                             best_idx = legal_moves.index(engine_best_move)
                         except ValueError:
                             best_idx = None
-                        if best_idx is not None:
+                            if best_idx is not None:
+                                mover_elo = white_elo if board.turn == chess.WHITE else black_elo
+                                clock_seconds = _closest_bucket_time(
+                                mover_elo, avg_time_by_rating, default_clock_seconds
+                            )
                             found.append(
                                 {
                                     "fen": board.fen(),
@@ -294,6 +321,7 @@ class ExternalHoldoutBuilder:
                                     "best_move_idx": int(best_idx),
                                     "best_move_uci": engine_best_move.uci(),
                                     "problem_id": f"chesscom_{game_idx}_{node.ply()}",
+                                    "clock_seconds": clock_seconds,
                                 }
                             )
             node = nxt
@@ -363,6 +391,8 @@ class ExternalHoldoutBuilder:
             for chunk in chunks:
                 if targets_satisfied():
                     break
+                if targets_satisfied():
+                    break
 
                 tasks = [
                     (
@@ -378,6 +408,8 @@ class ExternalHoldoutBuilder:
                         self.candidate_min_legal_moves,
                         self.candidate_max_legal_moves,
                         self.skip_if_in_check,
+                        self.avg_time_by_rating,
+                        self.default_clock_seconds,
                     )
                     for game_idx, pgn_text in chunk
                 ]
@@ -395,7 +427,12 @@ class ExternalHoldoutBuilder:
 
                         board = chess.Board(item["fen"])
                         label = {"mate_n": mate_n, "best_move_idx": item["best_move_idx"]}
-                        data_item = GraphBuilder.board_to_pyg_data(board, clock_seconds=0.0, label=label)
+                        data_item = GraphBuilder.board_to_pyg_data(board, clock_seconds=0.0, label=label)                        
+                        board = chess.Board(item["fen"])
+                        label = {"mate_n": mate_n, "best_move_idx": item["best_move_idx"]}
+                        data_item = GraphBuilder.board_to_pyg_data(
+                            board, clock_seconds=item["clock_seconds"], label=label
+                        )
 
                         data_item.chain_edge_index = torch.empty((2, 0), dtype=torch.long)
                         data_item.problem_id = item["problem_id"]
