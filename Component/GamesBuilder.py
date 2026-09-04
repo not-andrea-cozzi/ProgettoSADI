@@ -39,6 +39,24 @@ Uso tipico (vedi anche GamesBuilderMain.py):
         mate_range=(1, 10),
     )
     split_data, paths = builder.run()
+
+--------------------------------------------------------------------------
+FIX (Ctrl-C non funzionante / pool.join() bloccato indefinitamente):
+
+    La vecchia cleanup_after_failure() disabilitava SIGINT e poi chiamava
+    pool.join() SENZA alcun timeout. Se un worker restava appeso (tipico:
+    Stockfish bloccato in lettura sulla pipe dentro _close_engine()), quel
+    join() non ritornava mai — e i Ctrl-C successivi non facevano nulla
+    perche' SIGINT era gia' disabilitato nel processo principale.
+
+    cleanup_after_failure() ora applica lo stesso pattern robusto gia'
+    usato nel finally esterno e in ChessAnalysisPipeline: join con
+    deadline (self.pool_join_timeout, default 15s), e se dopo il timeout
+    restano worker vivi, li uccide con SIGKILL (via psutil), sia il
+    processo worker che gli eventuali Stockfish figli orfani — non solo
+    SIGTERM/pool.terminate(), che a quel punto e' gia' stato provato e
+    non ha funzionato.
+--------------------------------------------------------------------------
 """
 from __future__ import annotations
 
@@ -63,11 +81,7 @@ import chess.pgn
 import pandas as pd
 import torch
 from tqdm import tqdm
-
-try:
-    import zstandard as zstd
-except ImportError:  # pragma: no cover - opzionale se non si usa Lichess
-    zstd = None
+import zstandard as zstd  # pragma: no cover - opzionale se non si usa Lichess
 
 from DatasetCreator.GraphBuilder import GraphBuilder
 
@@ -1044,9 +1058,55 @@ class GamesBuilder:
         estimate = self._count_tasks_estimate()
 
         def cleanup_after_failure() -> None:
+            """Arresto forzato dei worker dopo Ctrl-C o eccezione.
+
+            FIX: la versione precedente disabilitava SIGINT e poi chiamava
+            pool.join() SENZA timeout — se un worker restava appeso (tipico:
+            Stockfish bloccato dentro _close_engine()), quel join() non
+            ritornava mai e i Ctrl-C successivi non facevano nulla, perche'
+            SIGINT era gia' disabilitato. Ora si applica una deadline
+            (self.pool_join_timeout, default 15s) e, se allo scadere
+            restano worker vivi, li si uccide con SIGKILL (via psutil),
+            sia il processo worker sia gli eventuali Stockfish figli
+            orfani — pool.terminate()/SIGTERM e' gia' stato tentato sopra
+            e non basta quando il worker e' davvero bloccato.
+            """
             old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
                 pool.terminate()
+
+                timeout = self.pool_join_timeout if self.pool_join_timeout is not None else 15.0
+                deadline = time.monotonic() + timeout
+                for proc in pool._pool:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    proc.join(timeout=remaining)
+
+                still_alive = [p for p in pool._pool if p.is_alive()]
+                if still_alive:
+                    stale_pids = [p.pid for p in still_alive]
+                    print(
+                        f"\n[WARNING] {len(still_alive)} worker non terminati entro "
+                        f"{timeout}s. Killo (SIGKILL) worker e Stockfish orfani."
+                    )
+                    try:
+                        import psutil
+                        for pid in stale_pids:
+                            try:
+                                parent = psutil.Process(pid)
+                                for child in parent.children(recursive=True):
+                                    child.kill()
+                                parent.kill()
+                            except psutil.NoSuchProcess:
+                                continue
+                    except ImportError:
+                        print(
+                            "[WARNING] 'psutil' non disponibile: impossibile forzare "
+                            "la terminazione dei processi orfani. Verificare manualmente "
+                            "con 'ps aux | grep stockfish'."
+                        )
+
                 pool.join()
             finally:
                 signal.signal(signal.SIGINT, old_sigint)
@@ -1165,4 +1225,4 @@ class GamesBuilder:
                 print(f"  n={n}: {mate_n_counts[n]:,}")
 
         print("=" * 60)
-        return paths    
+        return paths

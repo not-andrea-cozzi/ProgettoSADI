@@ -1,68 +1,70 @@
-# ============================================================================
-# MODIFICHE a Yaml/main.yaml
-# ============================================================================
-#
-# 1) In "raw_data", aggiungi (opzionali — se assenti o file non esistente,
-#    GamesBuilder salta semplicemente quella sorgente):
-#
+pipeline:
+  dataset_dir: "Dataset"
+  puzzles_subfolder: "puzzles"
+  merged_subfolder: "Train"
+  games_subfolder: "Games"
+  state_file: "pipeline_state.json"
+  force_recompute: false
+  log_level: "INFO"
+  log_file: "Dataset/pipeline.log"
+  step: null
+
+engine:
+  stockfish_path: "/usr/games/stockfish"
+  threads: 1
+  hash_mb: 32
+  syzygy_path: null
+
 raw_data:
   games_zst: "RawData/lichess_db_standard_rated_2020-01.pgn.zst"
   puzzles_zst: "RawData/lichess_db_puzzle.csv.zst"
-  external_csv: "RawData/club_games_data.csv.zip"
   fics_pgn: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
-  club_csv: "RawData/club_games_data.csv.zip"
+  club_csv: "RawData/club_games_data.csv"
 
-#
-# 2) In "games_pipeline", sostituisci mate_range_max e aggiungi i nuovi
-#    parametri (i vecchi restano tutti validi/riusati):
-#
+time_stats:
+  output_filename: "avg_time_by_rating.json"
+  max_games: 50000
+  bucket_size: 100
+
 games_pipeline:
-  max_games: 200000
+  output_base_filename: "games.pt"
+  max_games: 500000
   skip_games_part1: 0
   mate_range_min: 1
-  mate_range_max: 10              # ERA 5 — ora copre l'intero range dell'held-out
-  search_depth: 8                 # leggermente aumentato: mate fino a 10 richiede
-                                   # ricerca piu' profonda di mate 1-5 (era 6)
-  time_limit_seconds: 0.2         # leggero aumento rispetto a 0.15: mate piu'
-                                   # profondi hanno bisogno di qualche ms in piu'
-                                   # per essere trovati in modo affidabile
+  mate_range_max: 10
+  search_depth: 8
+  time_limit_seconds: 0.2
   max_piece_count: 18
   min_material_for_mate_attempt: 4
   only_decisive_games: true
   skip_time_forfeit: true
   ply_sample_step: 3
-  min_ply: 8                      # NUOVO: prima si guardava dal ply 16 (via
-                                   # min_ply nel vecchio ChessAnalysisPipeline);
-                                   # abbassato per catturare piu' posizioni di
-                                   # apertura/mediogioco con time trouble reale
+  min_ply: 8
   max_positions_per_game: 20
-  require_clock: false            # true forzerebbe a scartare mosse senza
-                                   # %clk/%emt: lasciato false, il fallback
-                                   # rating_bucket/default resta disponibile,
-                                   # ma drop_zero_clock elimina il caso peggiore
-  drop_zero_clock: true           # NUOVO: scarta clock=0.0 senza fonte reale
-  workers: null                   # null -> os.cpu_count()-1
-  checkpoint_every: 5000          # NUOVO: salva/logga ogni N posizioni generate
+  require_clock: false
+  drop_zero_clock: true
+  workers: null
+  checkpoint_every: 5000
   pool_join_timeout: 20.0
-
-  # NUOVO: parametri specifici per le sorgenti FICS/Club (tutti opzionali)
   fics_skip_games: 0
-  fics_max_games: null            # null = nessun limite (l'intero file)
+  fics_max_games: null
   club_pgn_col: "pgn"
   club_skip_games: 0
   club_max_games: null
+  min_rating: 1200
+  max_rating: null
+  min_material_diff_for_mate_attempt: 3
+  require_heavy_piece: true
+  skip_forced_moves: false
+  dedupe_positions: true
+  skip_trivial_endgame: true
 
-  # NUOVO: filtri economici aggressivi pre-Stockfish
-  min_rating: 1200                # scarta partite/mosse sotto questo rating
-                                   # (mate spesso "casuali", non tattica pulita)
-  max_rating: null                # null = nessun tetto superiore
-  min_material_diff_for_mate_attempt: 3   # vantaggio materiale minimo del
-                                           # mover rispetto all'avversario
-  require_heavy_piece: true       # richiede donna o torre del mover
-  skip_forced_moves: false        # true = scarta posizioni con 1 sola mossa
-                                   # legale (rischia di perdere mate net utili)
-  dedupe_positions: true          # salta transposizioni ripetute nella
-                                   # stessa partita (utile su bullet/blitz)
-  skip_trivial_endgame: true      # scarta K+minore vs K (quasi certo draw)
+puzzle_pipeline:
+  decompressed_csv_filename: "lichess_puzzles.csv"
+  chunk_size_bytes: 1048576
+  max_puzzles: 100000
 
-  output_base_filename: "games.pt"
+splits:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1

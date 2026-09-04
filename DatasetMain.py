@@ -9,7 +9,6 @@ import zstandard as zstd
 from tqdm import tqdm
 import yaml
 from Component.GamesBuilder import GamesBuilder, SourceSpec
-from DatasetCreator.ExternalHoldoutBuilder import ExternalHoldoutBuilder
 from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
@@ -71,7 +70,7 @@ def load_yaml_config(config_path: str = "Yaml/main.yaml") -> Dict[str, Any]:
 def validate_config(cfg: Dict[str, Any]):
     required_sections = [
         "pipeline", "engine", "raw_data", "time_stats",
-        "games_pipeline", "puzzle_pipeline", "splits", "external_holdout"
+        "games_pipeline", "puzzle_pipeline", "splits"
     ]
     for section in required_sections:
         if section not in cfg:
@@ -88,10 +87,6 @@ def validate_config(cfg: Dict[str, Any]):
     m_train = (cfg["games_pipeline"].get("mate_range_min", 1), cfg["games_pipeline"].get("mate_range_max", 5))
     if m_train[0] > m_train[1] or m_train[0] < 1:
         raise PipelineConfigError(f"Range mate non valido per train games: {m_train}")
-
-    m_holdout = (cfg["external_holdout"].get("mate_range_min", 1), cfg["external_holdout"].get("mate_range_max", 10))
-    if m_holdout[0] > m_holdout[1] or m_holdout[0] < 1:
-        raise PipelineConfigError(f"Range mate non valido per external holdout: {m_holdout}")
 
 
 @retry(max_attempts=3, base_delay=3.0, exceptions=(OSError, zstd.ZstdError))
@@ -178,7 +173,7 @@ def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
 
 VALID_STEPS = [
     "time_stats", "games_pipeline",
-    "decompress_puzzles", "build_puzzles", "merge_and_split", "external_holdout",
+    "decompress_puzzles", "build_puzzles", "merge_and_split",
 ]
 
 CONFIG_PATH = "Yaml/main.yaml"
@@ -195,7 +190,6 @@ def main():
     games_cfg = cfg["games_pipeline"]
     puzzle_cfg = cfg["puzzle_pipeline"]
     split_cfg = cfg["splits"]
-    holdout_cfg = cfg["external_holdout"]
 
     log_level = pipe_cfg.get("log_level", "INFO")
     log_file = pipe_cfg.get("log_file")
@@ -211,10 +205,9 @@ def main():
     dataset_dir = pipe_cfg.get("dataset_dir", "Dataset")
     puzzles_dir = os.path.join(dataset_dir, pipe_cfg.get("puzzles_subfolder", "puzzles"))
     merged_dir = os.path.join(dataset_dir, pipe_cfg.get("merged_subfolder", "Train"))
-    holdout_dir = os.path.join(dataset_dir, pipe_cfg.get("holdout_subfolder", "Holdout"))
     games_dir = os.path.join(dataset_dir, pipe_cfg.get("games_subfolder", "Games"))
 
-    for d in (dataset_dir, puzzles_dir, merged_dir, holdout_dir, games_dir):
+    for d in (dataset_dir, puzzles_dir, merged_dir, games_dir):
         os.makedirs(d, exist_ok=True)
 
     state_file = pipe_cfg.get("state_file", "pipeline_state.json")
@@ -228,10 +221,8 @@ def main():
     time_stats_path = os.path.join(dataset_dir, stats_cfg.get("output_filename", "avg_time_by_rating.json"))
     puzzle_csv_path = os.path.join(dataset_dir, puzzle_cfg.get("decompressed_csv_filename", "lichess_puzzles.csv"))
     games_output_base = os.path.join(dataset_dir, games_cfg.get("output_base_filename", "games.pt"))
-    holdout_path = os.path.join(holdout_dir, holdout_cfg.get("output_filename", "external_holdout.pt"))
 
     mate_train_range = (games_cfg.get("mate_range_min", 1), games_cfg.get("mate_range_max", 5))
-    mate_holdout_range = (holdout_cfg.get("mate_range_min", 1), holdout_cfg.get("mate_range_max", 10))
     split_ratios = (split_cfg.get("train_ratio", 0.8), split_cfg.get("val_ratio", 0.1), split_cfg.get("test_ratio", 0.1))
 
     ctx: Dict[str, Any] = {}
@@ -254,7 +245,6 @@ def main():
         ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
 
     # Step 2: Pipeline partite Lichess -> grafi posizioni matto 1-5
-    
     games_paths = {
         "train": f"{os.path.splitext(games_output_base)[0]}_train.pt",
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
@@ -263,7 +253,7 @@ def main():
     def _step_games_pipeline():
         require_file(raw_cfg["games_zst"], "Archivio PGN Lichess mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
- 
+
         sources = [
             SourceSpec(
                 kind="lichess",
@@ -273,7 +263,7 @@ def main():
                 tag="lichess",
             )
         ]
- 
+
         fics_path = raw_cfg.get("fics_pgn")
         if fics_path and os.path.exists(fics_path):
             sources.append(
@@ -287,7 +277,7 @@ def main():
             )
         else:
             logger.info("raw_data.fics_pgn non configurato o file assente: sorgente FICS saltata.")
- 
+
         club_path = raw_cfg.get("club_csv")
         if club_path and os.path.exists(club_path):
             sources.append(
@@ -302,37 +292,37 @@ def main():
             )
         else:
             logger.info("raw_data.club_csv non configurato o file assente: sorgente Club saltata.")
- 
+
         builder = GamesBuilder(
             sources=sources,
             stockfish_path=stockfish_path,
             output_pt=games_output_base,
-            mate_range=mate_train_range,  # ora (1, 10) di default da YAML
- 
+            mate_range=mate_train_range,
+
             search_depth=games_cfg.get("search_depth", 8),
             analysis_time=games_cfg.get("time_limit_seconds", 0.2),
- 
+
             workers=games_cfg.get("workers"),
             threads=engine_cfg.get("threads", 1),
             hash_mb=engine_cfg.get("hash_mb", 128),
             multipv=1,
- 
+
             seed=42,
             default_move_seconds=15.0,
             avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
             require_clock=games_cfg.get("require_clock", False),
- 
+
             min_ply=games_cfg.get("min_ply", 8),
             ply_sample_step=games_cfg.get("ply_sample_step", 3),
- 
+
             split_ratios=split_ratios,
             min_game_plies=games_cfg.get("min_game_plies", 20),
             max_positions_per_game=games_cfg.get("max_positions_per_game", 20),
- 
+
             candidate_min_legal_moves=games_cfg.get("candidate_min_legal_moves", 1),
             candidate_max_legal_moves=games_cfg.get("candidate_max_legal_moves"),
             skip_if_in_check=games_cfg.get("skip_if_in_check", False),
- 
+
             max_piece_count=games_cfg.get("max_piece_count", 18),
             only_decisive_games=games_cfg.get("only_decisive_games", True),
             skip_time_forfeit=games_cfg.get("skip_time_forfeit", True),
@@ -345,7 +335,7 @@ def main():
             skip_forced_moves=games_cfg.get("skip_forced_moves", False),
             dedupe_positions=games_cfg.get("dedupe_positions", True),
             skip_trivial_endgame=games_cfg.get("skip_trivial_endgame", True),
- 
+
             pool_join_timeout=games_cfg.get("pool_join_timeout", 20.0),
             syzygy_path=engine_cfg.get("syzygy_path"),
             checkpoint_every=games_cfg.get("checkpoint_every", 5000),
@@ -354,7 +344,7 @@ def main():
         splits, paths = builder.run()
         ctx["games_splits"] = splits
         ctx["games_paths"] = paths
- 
+
     if step is None or step == "games_pipeline":
         run_step(
             state,
@@ -362,7 +352,6 @@ def main():
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
             do_fn=_step_games_pipeline,
         )
-
 
     # Step 3: Decompressione puzzle Lichess
     def _step_decompress_puzzles():
@@ -438,47 +427,8 @@ def main():
             do_fn=_step_merge,
         )
 
-    # Step 6: Held-out esterno stratificato (n=1..10 per valutazione comparativa e profondita)
-    def _step_holdout():
-        builder = ExternalHoldoutBuilder(
-            external_csv=raw_cfg["external_csv"],
-            stockfish_path=stockfish_path,
-            out_pt=holdout_path,
-            mate_range=mate_holdout_range,
-            time_limit=holdout_cfg.get("time_limit_seconds", 0.3),
-            avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
-            pgn_col=holdout_cfg.get("pgn_col", "pgn"),
-            max_games_to_scan=holdout_cfg.get("max_games_to_scan", 1200),
-            target_total_problems=holdout_cfg.get("target_total_problems", 200),
-            stratification_config=holdout_cfg.get("stratification"),
-            threads=engine_cfg.get("threads", 2),
-            hash_mb=engine_cfg.get("hash_mb", 256),
-            require_move_match=holdout_cfg.get("require_move_match", True),
-            checkpoint_every=holdout_cfg.get("checkpoint_every", 50),
-            workers=holdout_cfg.get("workers"),
-            chunk_games=holdout_cfg.get("chunk_games", 200),
-            config_error_cls=PipelineConfigError,
-            min_ply=holdout_cfg.get("min_ply", 0),
-            ply_sample_step=holdout_cfg.get("ply_sample_step", 3),
-            max_piece_count=holdout_cfg.get("max_piece_count", 18),
-            candidate_min_legal_moves=holdout_cfg.get("candidate_min_legal_moves", 1),
-            candidate_max_legal_moves=holdout_cfg.get("candidate_max_legal_moves"),
-            skip_if_in_check=holdout_cfg.get("skip_if_in_check", False),
-            pool_join_timeout=holdout_cfg.get("pool_join_timeout", 15.0),
-        )
-        builder.run()
-
-    if step is None or step == "external_holdout":
-        run_step(
-            state,
-            "external_holdout",
-            is_ready_fn=lambda: torch_pt_ready(holdout_path),
-            do_fn=_step_holdout,
-        )
-
     logger.info("Pipeline completata con successo.")
     logger.info(f"Dataset train/val/test pronti in: {merged_dir}")
-    logger.info(f"Held-out set di validazione esterna pronto in: {holdout_dir}")
 
 
 if __name__ == "__main__":
