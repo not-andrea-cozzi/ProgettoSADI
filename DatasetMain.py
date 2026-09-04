@@ -8,7 +8,7 @@ import torch
 import zstandard as zstd
 from tqdm import tqdm
 import yaml
-
+from Component.GamesBuilder import GamesBuilder, SourceSpec
 from DatasetCreator.ExternalHoldoutBuilder import ExternalHoldoutBuilder
 from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
@@ -260,48 +260,101 @@ def main():
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
-    """
     def _step_games_pipeline():
-        require_file(raw_cfg["games_zst"], "Archivio PGN mancante per l'analisi partite.")
+        require_file(raw_cfg["games_zst"], "Archivio PGN Lichess mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
-        pipeline = ChessAnalysisPipeline(
-            zst_path=raw_cfg["games_zst"],
+ 
+        sources = [
+            SourceSpec(
+                kind="lichess",
+                path=raw_cfg["games_zst"],
+                skip_games=games_cfg.get("skip_games_part1", 0),
+                max_games=games_cfg.get("max_games", 200000),
+                tag="lichess",
+            )
+        ]
+ 
+        fics_path = raw_cfg.get("fics_pgn")
+        if fics_path and os.path.exists(fics_path):
+            sources.append(
+                SourceSpec(
+                    kind="fics",
+                    path=fics_path,
+                    skip_games=games_cfg.get("fics_skip_games", 0),
+                    max_games=games_cfg.get("fics_max_games"),
+                    tag="fics",
+                )
+            )
+        else:
+            logger.info("raw_data.fics_pgn non configurato o file assente: sorgente FICS saltata.")
+ 
+        club_path = raw_cfg.get("club_csv")
+        if club_path and os.path.exists(club_path):
+            sources.append(
+                SourceSpec(
+                    kind="club",
+                    path=club_path,
+                    pgn_col=games_cfg.get("club_pgn_col", "pgn"),
+                    skip_games=games_cfg.get("club_skip_games", 0),
+                    max_games=games_cfg.get("club_max_games"),
+                    tag="club",
+                )
+            )
+        else:
+            logger.info("raw_data.club_csv non configurato o file assente: sorgente Club saltata.")
+ 
+        builder = GamesBuilder(
+            sources=sources,
             stockfish_path=stockfish_path,
             output_pt=games_output_base,
-
-            mate_range=mate_train_range,
-
-            search_depth=games_cfg.get("search_depth", 6),
-            analysis_time=games_cfg.get("time_limit_seconds", 0.15),
-
-            max_games=games_cfg.get("max_games", 180000),
-            skip_games=games_cfg.get("skip_games", 0),
-
-            workers=games_cfg.get("workers", 8),
-            threads=1,
-
+            mate_range=mate_train_range,  # ora (1, 10) di default da YAML
+ 
+            search_depth=games_cfg.get("search_depth", 8),
+            analysis_time=games_cfg.get("time_limit_seconds", 0.2),
+ 
+            workers=games_cfg.get("workers"),
+            threads=engine_cfg.get("threads", 1),
             hash_mb=engine_cfg.get("hash_mb", 128),
             multipv=1,
-
-            split_ratios=split_ratios,
-
+ 
+            seed=42,
             default_move_seconds=15.0,
-            require_clock=False,
-            min_ply=16,
-
+            avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
+            require_clock=games_cfg.get("require_clock", False),
+ 
+            min_ply=games_cfg.get("min_ply", 8),
+            ply_sample_step=games_cfg.get("ply_sample_step", 3),
+ 
+            split_ratios=split_ratios,
+            min_game_plies=games_cfg.get("min_game_plies", 20),
+            max_positions_per_game=games_cfg.get("max_positions_per_game", 20),
+ 
+            candidate_min_legal_moves=games_cfg.get("candidate_min_legal_moves", 1),
+            candidate_max_legal_moves=games_cfg.get("candidate_max_legal_moves"),
+            skip_if_in_check=games_cfg.get("skip_if_in_check", False),
+ 
             max_piece_count=games_cfg.get("max_piece_count", 18),
             only_decisive_games=games_cfg.get("only_decisive_games", True),
             skip_time_forfeit=games_cfg.get("skip_time_forfeit", True),
-            ply_sample_step=games_cfg.get("ply_sample_step", 3),
-            max_positions_per_game=games_cfg.get("max_positions_per_game", 20),
-
-            syzygy_path=engine_cfg.get("syzygy_path"),
             min_material_for_mate_attempt=games_cfg.get("min_material_for_mate_attempt", 4),
+            drop_zero_clock=games_cfg.get("drop_zero_clock", True),
+            min_rating=games_cfg.get("min_rating", 700),
+            max_rating=games_cfg.get("max_rating"),
+            min_material_diff_for_mate_attempt=games_cfg.get("min_material_diff_for_mate_attempt", 3),
+            require_heavy_piece=games_cfg.get("require_heavy_piece", True),
+            skip_forced_moves=games_cfg.get("skip_forced_moves", False),
+            dedupe_positions=games_cfg.get("dedupe_positions", True),
+            skip_trivial_endgame=games_cfg.get("skip_trivial_endgame", True),
+ 
+            pool_join_timeout=games_cfg.get("pool_join_timeout", 20.0),
+            syzygy_path=engine_cfg.get("syzygy_path"),
+            checkpoint_every=games_cfg.get("checkpoint_every", 5000),
+            config_error_cls=PipelineConfigError,
         )
-        splits, paths = pipeline.run()
+        splits, paths = builder.run()
         ctx["games_splits"] = splits
         ctx["games_paths"] = paths
-
+ 
     if step is None or step == "games_pipeline":
         run_step(
             state,
@@ -309,7 +362,7 @@ def main():
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
             do_fn=_step_games_pipeline,
         )
-    """
+
 
     # Step 3: Decompressione puzzle Lichess
     def _step_decompress_puzzles():

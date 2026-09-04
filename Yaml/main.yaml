@@ -1,80 +1,68 @@
-# ==============================================================================
-# Configurazione Pipeline - Timed Graph Neural Network per Scacchi
-# Specifica: Lichess Data Preparation & Held-Out Validation (Mate 1-10)
-# ==============================================================================
-
-pipeline:
-  dataset_dir: "Dataset"
-  puzzles_subfolder: "puzzles"
-  merged_subfolder: "Train"      # output finale train/val/test -> Dataset/Train
-  holdout_subfolder: "Holdout"   # output esterno mate 1-10    -> Dataset/Holdout
-  games_subfolder: "Games"       # output unione part1+part2   -> Dataset/Games
-  state_file: "pipeline_state.json"
-  log_file: "pipeline.log"
-  log_level: "INFO"
-  force_recompute: false
-  step: "external_holdout"           
-                                  
-engine:
-  stockfish_path: "/usr/games/stockfish"
-  threads: 3
-  hash_mb: 256
-  syzygy_path: null                # cartella file Syzygy .rtbw/.rtbz (es. 3-4-5 pezzi).
-                                    # null = screening Syzygy disattivato, nessun impatto.
-                                    # Se valorizzata, va scaricata a parte (non inclusa in nessuna libreria).
-
+# ============================================================================
+# MODIFICHE a Yaml/main.yaml
+# ============================================================================
+#
+# 1) In "raw_data", aggiungi (opzionali — se assenti o file non esistente,
+#    GamesBuilder salta semplicemente quella sorgente):
+#
 raw_data:
-  games_zst: "DatasetCreator/RawData/lichess_db_standard_rated_2020-01.pgn.zst"
-  puzzles_zst: "DatasetCreator/RawData/lichess_db_puzzle.csv.zst"
-  external_csv: "DatasetCreator/RawData/club_games_data.csv.zip"
+  games_zst: "RawData/lichess_db_standard_rated_2020-01.pgn.zst"
+  puzzles_zst: "RawData/lichess_db_puzzle.csv.zst"
+  external_csv: "RawData/club_games_data.csv.zip"
+  fics_pgn: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
+  club_csv: "RawData/club_games_data.csv.zip"
 
-time_stats:
-  max_games: 100000
-  bucket_size: 100
-  output_filename: "avg_time_by_rating.json"
-
+#
+# 2) In "games_pipeline", sostituisci mate_range_max e aggiungi i nuovi
+#    parametri (i vecchi restano tutti validi/riusati):
+#
 games_pipeline:
-  max_games: 200000                # run singolo: prime 200k partite (era 100k+100k su due run)
-  skip_games_part1: 0               # partite da saltare nel run base (0 = parte dall'inizio del file)
+  max_games: 200000
+  skip_games_part1: 0
   mate_range_min: 1
-  mate_range_max: 5
-  search_depth: 6                 # ridotto da 10: mate 1-5 non richiede profondita' alta
-  time_limit_seconds: 0.15        # ha priorita' su search_depth (analysis_time)
-  max_piece_count: 18             # scarta posizioni affollate pre-Stockfish
-  min_material_for_mate_attempt: 4  # scarta pre-Stockfish se il lato di turno ha meno
-                                     # di questo materiale (Q=9,R=5,B/N=3,P=1, re escluso)
-  only_decisive_games: true       # scarta patte (mai producono mate)
-  skip_time_forfeit: true         # scarta vittorie per tempo scaduto
-  ply_sample_step: 3              # analizza 1 posizione ogni 3 ply (non tutte)
-  max_positions_per_game: 20      # cap duro sul numero di chiamate Stockfish/partita
+  mate_range_max: 10              # ERA 5 — ora copre l'intero range dell'held-out
+  search_depth: 8                 # leggermente aumentato: mate fino a 10 richiede
+                                   # ricerca piu' profonda di mate 1-5 (era 6)
+  time_limit_seconds: 0.2         # leggero aumento rispetto a 0.15: mate piu'
+                                   # profondi hanno bisogno di qualche ms in piu'
+                                   # per essere trovati in modo affidabile
+  max_piece_count: 18
+  min_material_for_mate_attempt: 4
+  only_decisive_games: true
+  skip_time_forfeit: true
+  ply_sample_step: 3
+  min_ply: 8                      # NUOVO: prima si guardava dal ply 16 (via
+                                   # min_ply nel vecchio ChessAnalysisPipeline);
+                                   # abbassato per catturare piu' posizioni di
+                                   # apertura/mediogioco con time trouble reale
+  max_positions_per_game: 20
+  require_clock: false            # true forzerebbe a scartare mosse senza
+                                   # %clk/%emt: lasciato false, il fallback
+                                   # rating_bucket/default resta disponibile,
+                                   # ma drop_zero_clock elimina il caso peggiore
+  drop_zero_clock: true           # NUOVO: scarta clock=0.0 senza fonte reale
+  workers: null                   # null -> os.cpu_count()-1
+  checkpoint_every: 5000          # NUOVO: salva/logga ogni N posizioni generate
+  pool_join_timeout: 20.0
+
+  # NUOVO: parametri specifici per le sorgenti FICS/Club (tutti opzionali)
+  fics_skip_games: 0
+  fics_max_games: null            # null = nessun limite (l'intero file)
+  club_pgn_col: "pgn"
+  club_skip_games: 0
+  club_max_games: null
+
+  # NUOVO: filtri economici aggressivi pre-Stockfish
+  min_rating: 1200                # scarta partite/mosse sotto questo rating
+                                   # (mate spesso "casuali", non tattica pulita)
+  max_rating: null                # null = nessun tetto superiore
+  min_material_diff_for_mate_attempt: 3   # vantaggio materiale minimo del
+                                           # mover rispetto all'avversario
+  require_heavy_piece: true       # richiede donna o torre del mover
+  skip_forced_moves: false        # true = scarta posizioni con 1 sola mossa
+                                   # legale (rischia di perdere mate net utili)
+  dedupe_positions: true          # salta transposizioni ripetute nella
+                                   # stessa partita (utile su bullet/blitz)
+  skip_trivial_endgame: true      # scarta K+minore vs K (quasi certo draw)
+
   output_base_filename: "games.pt"
-  output_base_filename_part2: "games_part2.pt"  # output del run games_pipeline_part2 (non usato in modalita' single-run)
-  skip_games: 100000               # usato solo da games_pipeline_part2, irrilevante se non lanci quello step
-
-puzzle_pipeline:
-  max_puzzles: 100000
-  mate_range_min: 1
-  mate_range_max: 5
-  chunk_size_bytes: 1048576       # 1 MB chunk per decompressione .zst
-  decompressed_csv_filename: "lichess_puzzles.csv"
-
-splits:
-  train_ratio: 0.80
-  val_ratio: 0.10
-  test_ratio: 0.10
-
-external_holdout:
-  mate_range_min: 1
-  mate_range_max: 10
-  time_limit_seconds: 0.3
-  pgn_col: "pgn"
-  max_games_to_scan: 3000
-  target_total_problems: 200      # Target complessivo raccomandato (100-200)
-  stratification:
-    n_1_to_5_target_each: 30      # 30 campioni ciascuno per n=1..5 (totale 150)
-    n_6_to_10_target_each: 10     # 10 campioni ciascuno per n=6..10 (totale 50)
-  require_move_match: true
-  checkpoint_every: 50
-  workers: null                   # null -> os.cpu_count()-1, come games_pipeline
-  chunk_games: 200                # partite per chunk sottomesso al Pool (early-stop granularity)
-  output_filename: "external_holdout.pt"
