@@ -1,20 +1,38 @@
 # Configurazione per il training del modello TimedPolicyGNN
+
+# ---- Dati ----
 data_dir: "Dataset/Train"
 time_stats_json: "Dataset/avg_time_by_rating.json"
+
+# ---- Output ----
 checkpoint_dir: "Modelli_Andrea/Checkpoints"
 results_dir: "Modelli_Andrea/Results"
 
-epochs: 50
-batch_size: 64
-lr: 0.001
+# ---- Modello ----
 hidden_dim: 128
 num_layers: 6
 lambda_decay: 0.01
-mate_loss_weight: 0.3
-patience: 7
-num_workers: 6
+
+# ---- Training ----
 seed: 42
+epochs: 50
+batch_size: 64
+lr: 0.001
 grad_clip: 1.0
-compile: false
+mate_loss_weight: 0.3
+
+# ---- Early stopping ----
+patience: 7
 es_metric: "val_move_acc"
+
+# ---- Valutazione ----
 max_mate_depth_eval: 10
+
+# ---- DataLoader ----
+num_workers: 3
+prefetch_factor: 4                 # nuovo: quanti batch pre-caricare per worker
+shard_cache_size: 3                # nuovo: shard tenuti in RAM per worker (~30-70MB ciascuno)
+
+# ---- Debug / performance ----
+compile: false
+benchmark_loader: true             # nuovo: misura ms/batch a inizio training

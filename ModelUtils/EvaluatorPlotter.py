@@ -10,10 +10,9 @@ import numpy as np
 
 logger = logging.getLogger("evaluator_plotter")
 
-
 class EvaluatorPlotter:
     """
-    Classe helper per calcolare metriche e generare grafici/CSV per la valutazione dei modelli.
+    Helper per calcolare metriche e generare grafici/CSV per la valutazione dei modelli.
     Accetta i risultati nel formato flat prodotto da evaluate() in TestModels.py:
         {
             "move_correct": np.ndarray[bool],
@@ -65,10 +64,6 @@ class EvaluatorPlotter:
 
         return depths, move_accs, mate_accs, counts, corrects_move
 
-    # -------------------------------------------------------------------------
-    # METODI DI PLOTTING E SALVATAGGIO
-    # -------------------------------------------------------------------------
-
     def plot_depth_bars(self, res_t: dict, res_u: dict, max_n: int = 10, filename: str = "bars_per_n.png"):
         """Plot 1: Barre verticali per vedere risposte giuste / totale per ogni n (da 1 a max_n)."""
         depths, acc_t, _, counts, corrects_t = self._extract_depth_arrays(res_t, max_n)
@@ -78,7 +73,6 @@ class EvaluatorPlotter:
         x = np.arange(len(depths))
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        # Sostituisco i NaN con 0 solo per il plotting
         acc_t_plot = np.nan_to_num(acc_t, nan=0.0)
         acc_u_plot = np.nan_to_num(acc_u, nan=0.0)
 
@@ -158,7 +152,6 @@ class EvaluatorPlotter:
             logger.warning("Nessun campione per il plot aggregato.")
             return
 
-        # Media pesata per conteggio (ignorando i NaN)
         valid_t = ~np.isnan(move_t)
         valid_u = ~np.isnan(move_u)
 

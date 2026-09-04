@@ -5,6 +5,15 @@ from torch_geometric.data import Batch
 
 CLOCK_CAP_SECONDS = 600.0
 
+# Chiavi non-tensor / metadati: NON devono finire nel Batch collate
+EXCLUDE_KEYS = [
+    "game_id", "puzzle_id", "problem_id",
+    "best_move_uci", "best_move_idx",
+    "fen", "clock_source", "clock_is_real",
+    "ply", "move_idx", "source",
+    "clock_seconds",  # letto per-oggetto nel collate, non serve nel batch
+]
+
 
 def _clock_seconds_from_norm(clock_norm: float) -> float:
     denom = math.log1p(CLOCK_CAP_SECONDS)
@@ -14,17 +23,20 @@ def _clock_seconds_from_norm(clock_norm: float) -> float:
 
 
 def group_puzzle_sequences(puzzle_data_list):
+    """Raggruppa per (game_id, problem_id) se disponibili, altrimenti puzzle_id."""
     by_puzzle = {}
     for d in puzzle_data_list:
-        pid = getattr(d, "puzzle_id", None)
-        if pid is None:
-            pid = getattr(d, "problem_id", None)
-        if pid is None:
+        gid = getattr(d, "game_id", None)
+        pid = getattr(d, "problem_id", None)
+        if gid is not None and pid is not None:
+            key = (gid, pid) if not isinstance(gid, list) else (tuple(gid), pid)
+        else:
+            key = getattr(d, "puzzle_id", None) or gid or pid
+            if isinstance(key, list):
+                key = tuple(key) if len(key) > 1 else key[0]
+        if key is None:
             continue
-        # puzzle_id potrebbe essere una lista → convertiamo in stringa hashable
-        if isinstance(pid, list):
-            pid = tuple(pid) if len(pid) > 1 else pid[0]
-        by_puzzle.setdefault(pid, []).append(d)
+        by_puzzle.setdefault(key, []).append(d)
 
     sequences = []
     for plies in by_puzzle.values():
@@ -65,7 +77,8 @@ def timed_collate_fn(batch_of_sequences):
                 chain_dt.append(max(0.0, dt))
         running_idx += len(sequence)
 
-    inner_batch = Batch.from_data_list(flat_positions)
+    # exclude_keys: evita KeyError su chiavi eterogenee/non-tensor
+    inner_batch = Batch.from_data_list(flat_positions, exclude_keys=EXCLUDE_KEYS)
 
     if chain_src:
         chain_edge_index = torch.tensor([chain_src, chain_dst], dtype=torch.long)

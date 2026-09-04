@@ -4,13 +4,11 @@ from torch_geometric.nn import global_mean_pool
 from timegnn.models.gat_time_decay import TimeAwareGATConv
 from ModelUtils.PolicyGNN import GraphEncoder, MAX_MATE_N
 
-
 class TimeChainRefiner(nn.Module):
     def __init__(self, hidden_dim: int, num_heads: int = 4, lambda_decay: float = 0.01):
         super().__init__()
         if hidden_dim % num_heads != 0:
             raise ValueError("hidden_dim deve essere divisibile per num_heads")
-            
         self.gat = TimeAwareGATConv(
             hidden_dim, hidden_dim // num_heads, heads=num_heads, concat=True,
             edge_dim=1, lambda_decay=lambda_decay,
@@ -22,7 +20,6 @@ class TimeChainRefiner(nn.Module):
             return pos_emb
         refined = self.gat(pos_emb, chain_edge_index, edge_attr=chain_edge_attr)
         return self.norm(pos_emb + refined)
-
 
 class TimedPolicyGNN(nn.Module):
     def __init__(self, hidden_dim: int = 128, num_layers: int = 4, heads: int = 4,
@@ -47,7 +44,7 @@ class TimedPolicyGNN(nn.Module):
         x = inner_batch.x
         if not self.use_time:
             x = x.clone()
-            x[:, 3] = 0.0  # Azzera esplicitamente clock_norm
+            x[:, 3] = 0.0  # Azzera clock_norm
 
         h = self.encoder(x, inner_batch.edge_index, inner_batch.edge_attr)
 

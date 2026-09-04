@@ -251,18 +251,23 @@ def main():
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
     def _step_games_pipeline():
-        require_file(raw_cfg["games_zst"], "Archivio PGN Lichess mancante per l'analisi partite.")
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
 
-        sources = [
-            SourceSpec(
-                kind="lichess",
-                path=raw_cfg["games_zst"],
-                skip_games=games_cfg.get("skip_games_part1", 0),
-                max_games=games_cfg.get("max_games", 200000),
-                tag="lichess",
+        sources = []
+
+        lichess_path = raw_cfg.get("games_zst")
+        if lichess_path and os.path.exists(lichess_path):
+            sources.append(
+                SourceSpec(
+                    kind="lichess",
+                    path=lichess_path,
+                    skip_games=games_cfg.get("skip_games_part1", 0),
+                    max_games=games_cfg.get("max_games", 200000),
+                    tag="lichess",
+                )
             )
-        ]
+        else:
+            logger.info("raw_data.games_zst non configurato o file assente: sorgente Lichess saltata.")
 
         fics_path = raw_cfg.get("fics_pgn")
         if fics_path and os.path.exists(fics_path):
@@ -292,6 +297,9 @@ def main():
             )
         else:
             logger.info("raw_data.club_csv non configurato o file assente: sorgente Club saltata.")
+
+        if not sources:
+            raise PipelineConfigError("Nessuna sorgente (Lichess, FICS o Club) configurata o trovata. Impossibile procedere.")
 
         builder = GamesBuilder(
             sources=sources,
@@ -401,22 +409,72 @@ def main():
         split: os.path.join(merged_dir, f"merged_{split}.pt")
         for split in ("train", "val", "test")
     }
+    
+    def convert_puzzle_data(raw_data):
+        """
+        Converte i dati dei puzzle (tuple di (Data, ...)) in una lista di oggetti Data
+        con attributo mate_n scalare (intero).
+        """
+        converted = []
+        for item in raw_data:
+            # Estrai il Data (primo elemento se è una tupla/lista)
+            if isinstance(item, (tuple, list)):
+                data = item[0]
+            else:
+                data = item
+
+            # Calcola mate_n a partire da y o mate_n esistente
+            if hasattr(data, 'y'):
+                mate = int(data.y) + 1  # y è 0‑based per mate in 1..5
+            elif hasattr(data, 'mate_n'):
+                mate_val = data.mate_n
+                if isinstance(mate_val, torch.Tensor):
+                    if mate_val.numel() == 1:
+                        mate = int(mate_val.item())
+                    else:
+                        # Prendi il valore più frequente (moda)
+                        flat = mate_val.flatten()
+                        if flat.dtype in (torch.int, torch.long):
+                            mate = int(torch.mode(flat)[0].item())
+                        else:
+                            mate = int(flat[0].item())
+                else:
+                    mate = int(mate_val)
+            else:
+                raise ValueError("Nessun attributo 'y' o 'mate_n' trovato nell'oggetto puzzle")
+
+            # Imposta l'attributo mate_n sull'oggetto Data
+            data.mate_n = mate
+            converted.append(data)
+        return converted
 
     def _step_merge():
         if "puzzle_splits" not in ctx:
-            ctx["puzzle_splits"] = {
+            # Carica i dati grezzi
+            puzzle_raw = {
                 s: torch.load(puzzle_processed_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
+            # Convertili
+            ctx["puzzle_splits"] = {
+                s: convert_puzzle_data(puzzle_raw[s])
+                for s in ("train", "val", "test")
+            }
+
         if "games_splits" not in ctx:
             ctx["games_splits"] = {
                 s: torch.load(games_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
+
+        # Ora chiama merge_and_split (versione originale)
         merge_and_split(
             puzzle_splits=ctx["puzzle_splits"],
             games_splits=ctx["games_splits"],
             out_dir=merged_dir,
+            mate_attr="mate_n",
+            ratios=split_ratios,
+            seed=42
         )
 
     if step is None or step == "merge_and_split":

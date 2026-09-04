@@ -800,6 +800,13 @@ class GamesBuilder:
             game = chess.pgn.read_game(io.StringIO(pgn_text))
         except Exception:
             return game_id, []
+            
+        if game is None:
+            return game_id, []
+
+        if game.headers.get("Variant", "Standard").lower() not in ("standard", "normal"):
+            return game_id, []
+
         if not self._game_is_eligible(game):
             return game_id, []
 
@@ -820,178 +827,165 @@ class GamesBuilder:
         mate_lo, mate_hi = self.mate_range
         positions_analysed = 0
 
-        # NUOVO: cache di deduplica per QUESTA partita — una volta che una
-        # posizione (board_fen senza clock/halfmove) e' stata scartata dai
-        # filtri economici o gia' vista, le occorrenze successive identiche
-        # (tipiche di transposizioni in bullet/blitz) vengono saltate senza
-        # rieseguire alcun controllo.
+        # Cache di deduplica per QUESTA partita
         seen_positions: set = set()
 
-        while node.variations:
-            next_node = node.variation(0)
-            board = node.board()
-            comment = next_node.comment or ""
-            mover_color = board.turn
+        # Blocco try-except generale per isolare il parsing della scacchiera
+        try:
+            while node.variations:
+                next_node = node.variation(0)
+                board = node.board()
+                comment = next_node.comment or ""
+                mover_color = board.turn
 
-            if self.dedupe_positions:
-                # board_fen() include halfmove/fullmove: usiamo solo i primi
-                # 4 campi FEN (piazzamento, turno, arrocchi, en-passant) per
-                # una vera deduplica per transposizione.
-                position_key = " ".join(board.fen().split(" ")[:4])
-                if position_key in seen_positions:
+                if self.dedupe_positions:
+                    # Usiamo solo i primi 4 campi FEN per la vera deduplica
+                    position_key = " ".join(board.fen().split(" ")[:4])
+                    if position_key in seen_positions:
+                        node = next_node
+                        continue
+                    seen_positions.add(position_key)
+
+                emt_seconds = self._parse_emt(comment)
+                current_clock = self._parse_clk(comment)
+
+                if emt_seconds is not None:
+                    move_duration = emt_seconds
+                    duration_is_real = True
+                    clock_source = "real_emt"
+                else:
+                    move_duration = self._compute_move_duration(
+                        previous_clock[mover_color], current_clock, increment
+                    )
+                    duration_is_real = move_duration is not None
+                    clock_source = "real_clk" if duration_is_real else None
+
+                if current_clock is not None:
+                    previous_clock[mover_color] = current_clock
+
+                if node.ply() < self.min_ply:
                     node = next_node
                     continue
-                seen_positions.add(position_key)
+                if (node.ply() - self.min_ply) % self.ply_sample_step != 0:
+                    node = next_node
+                    continue
+                if self.require_clock and not duration_is_real:
+                    node = next_node
+                    continue
+                if self.max_positions_per_game is not None and positions_analysed >= self.max_positions_per_game:
+                    break
 
-            # --- durata mossa: %emt (diretta) ha priorita' su %clk (diff) ---
-            emt_seconds = self._parse_emt(comment)
-            current_clock = self._parse_clk(comment)
+                legal_moves = self._get_candidate_legal_moves(board)
+                if legal_moves is None:
+                    node = next_node
+                    continue
 
-            if emt_seconds is not None:
-                move_duration = emt_seconds
-                duration_is_real = True
-                clock_source = "real_emt"
-            else:
-                move_duration = self._compute_move_duration(
-                    previous_clock[mover_color], current_clock, increment
-                )
-                duration_is_real = move_duration is not None
-                clock_source = "real_clk" if duration_is_real else None
+                if self.skip_forced_moves and len(legal_moves) == 1:
+                    node = next_node
+                    continue
 
-            if current_clock is not None:
-                previous_clock[mover_color] = current_clock
+                if self.require_heavy_piece and not self._mover_has_heavy_piece(board):
+                    node = next_node
+                    continue
 
-            if node.ply() < self.min_ply:
-                node = next_node
-                continue
-            if (node.ply() - self.min_ply) % self.ply_sample_step != 0:
-                node = next_node
-                continue
-            if self.require_clock and not duration_is_real:
-                node = next_node
-                continue
-            if self.max_positions_per_game is not None and positions_analysed >= self.max_positions_per_game:
-                break
+                if not self._has_mating_material(board):
+                    node = next_node
+                    continue
 
-            legal_moves = self._get_candidate_legal_moves(board)
-            if legal_moves is None:
-                node = next_node
-                continue
+                if self.skip_trivial_endgame and self._is_trivially_drawn_endgame(board):
+                    node = next_node
+                    continue
 
-            # --- filtri O(1)/quasi-O(1), ordinati dal piu' economico ---
+                if self.min_rating is not None or self.max_rating is not None:
+                    mover_rating_val = mover_rating[mover_color]
+                    if mover_rating_val is not None:
+                        if self.min_rating is not None and mover_rating_val < self.min_rating:
+                            node = next_node
+                            continue
+                        if self.max_rating is not None and mover_rating_val > self.max_rating:
+                            node = next_node
+                            continue
 
-            if self.skip_forced_moves and len(legal_moves) == 1:
-                node = next_node
-                continue
+                if self._syzygy_says_no_mate(board):
+                    node = next_node
+                    continue
 
-            if self.require_heavy_piece and not self._mover_has_heavy_piece(board):
-                node = next_node
-                continue
+                info = self._analyse_position(board)
+                positions_analysed += 1
+                if not info:
+                    node = next_node
+                    continue
 
-            if not self._has_mating_material(board):
-                node = next_node
-                continue
+                best_info = info[0]
+                score = best_info.get("score")
+                if score is None:
+                    node = next_node
+                    continue
+                relative_score = score.relative
+                if not relative_score.is_mate():
+                    node = next_node
+                    continue
+                mate_n = relative_score.mate()
+                if mate_n is None or not (mate_n > 0 and mate_lo <= mate_n <= mate_hi):
+                    node = next_node
+                    continue
 
-            if self.skip_trivial_endgame and self._is_trivially_drawn_endgame(board):
-                node = next_node
-                continue
+                pv = best_info.get("pv")
+                if not pv:
+                    node = next_node
+                    continue
+                best_move = pv[0]
+                try:
+                    best_move_idx = legal_moves.index(best_move)
+                except ValueError:
+                    node = next_node
+                    continue
 
-            if self.min_rating is not None or self.max_rating is not None:
-                mover_rating_val = mover_rating[mover_color]
-                if mover_rating_val is not None:
-                    if self.min_rating is not None and mover_rating_val < self.min_rating:
-                        node = next_node
-                        continue
-                    if self.max_rating is not None and mover_rating_val > self.max_rating:
-                        node = next_node
-                        continue
-
-            # --- filtro piu' costoso ma ancora pre-Stockfish (probe I/O) ---
-            if self._syzygy_says_no_mate(board):
-                node = next_node
-                continue
-
-            info = self._analyse_position(board)
-            positions_analysed += 1
-            if not info:
-                node = next_node
-                continue
-
-            best_info = info[0]
-            score = best_info.get("score")
-            if score is None:
-                node = next_node
-                continue
-            relative_score = score.relative
-            if not relative_score.is_mate():
-                node = next_node
-                continue
-            mate_n = relative_score.mate()
-            if mate_n is None or not (mate_n > 0 and mate_lo <= mate_n <= mate_hi):
-                node = next_node
-                continue
-
-            pv = best_info.get("pv")
-            if not pv:
-                node = next_node
-                continue
-            best_move = pv[0]
-            try:
-                best_move_idx = legal_moves.index(best_move)
-            except ValueError:
-                node = next_node
-                continue
-
-            # --- risoluzione clock_seconds finale con fallback esplicito ---
-            if duration_is_real:
-                clock_seconds = move_duration
-            else:
-                bucket_time = self._closest_bucket_time(mover_rating[mover_color])
-                if bucket_time is not None:
-                    clock_seconds = bucket_time
-                    clock_source = "rating_bucket"
+                if duration_is_real:
+                    clock_seconds = move_duration
                 else:
-                    clock_seconds = self.default_move_seconds
-                    clock_source = "default_constant"
+                    bucket_time = self._closest_bucket_time(mover_rating[mover_color])
+                    if bucket_time is not None:
+                        clock_seconds = bucket_time
+                        clock_source = "rating_bucket"
+                    else:
+                        clock_seconds = self.default_move_seconds
+                        clock_source = "default_constant"
 
-            # NUOVO: scarta posizioni il cui SOLO segnale disponibile e'
-            # "clock reale ma zero secondi netti" quando cio' e' chiaramente
-            # un artefatto di parsing (es. clk letto ma diff negativa
-            # clampata a 0 per via di un giro di lettura mancato), per non
-            # inquinare clock_norm con falsi "tempo istantaneo". I veri
-            # lampi (es. 1s reali in time trouble) restano: qui scartiamo
-            # solo il fallback totale "0.0 costante senza alcuna fonte",
-            # identificabile perche' duration_is_real e' False E non c'e'
-            # ne' rating_bucket ne' informazione utile diversa da 0.
-            if self.drop_zero_clock and clock_seconds == 0.0 and not duration_is_real:
+                if self.drop_zero_clock and clock_seconds == 0.0 and not duration_is_real:
+                    node = next_node
+                    continue
+
+                label = {"mate_n": int(mate_n), "best_move_idx": int(best_move_idx)}
+                try:
+                    data = GraphBuilder.board_to_pyg_data(
+                        board, clock_seconds=clock_seconds, label=label, legal_moves=legal_moves
+                    )
+                except Exception:
+                    node = next_node
+                    continue
+
+                data.game_id = int(game_id)
+                data.ply = int(node.ply())
+                data.clock_seconds = float(clock_seconds)
+                data.clock_is_real = bool(duration_is_real)
+                data.clock_source = clock_source or "unknown"
+                data.mate_n = int(mate_n)
+                data.best_move_idx = int(best_move_idx)
+                data.best_move_uci = best_move.uci()
+                data.fen = board.fen()
+                data.source = source_tag
+                data.problem_id = f"{source_tag}_{game_id}_{node.ply()}"
+                rating_val = mover_rating[mover_color]
+                data.rating = float(rating_val) if rating_val is not None else float("nan")
+
+                data_list.append(self._data_to_plain_dict(data))
                 node = next_node
-                continue
 
-            label = {"mate_n": int(mate_n), "best_move_idx": int(best_move_idx)}
-            try:
-                data = GraphBuilder.board_to_pyg_data(
-                    board, clock_seconds=clock_seconds, label=label, legal_moves=legal_moves
-                )
-            except Exception:
-                node = next_node
-                continue
-
-            data.game_id = int(game_id)
-            data.ply = int(node.ply())
-            data.clock_seconds = float(clock_seconds)
-            data.clock_is_real = bool(duration_is_real)
-            data.clock_source = clock_source or "unknown"
-            data.mate_n = int(mate_n)
-            data.best_move_idx = int(best_move_idx)
-            data.best_move_uci = best_move.uci()
-            data.fen = board.fen()
-            data.source = source_tag
-            data.problem_id = f"{source_tag}_{game_id}_{node.ply()}"
-            rating_val = mover_rating[mover_color]
-            data.rating = float(rating_val) if rating_val is not None else float("nan")
-
-            data_list.append(self._data_to_plain_dict(data))
-            node = next_node
+        except Exception:
+            # Cattura silenziosamente errori in python-chess (es. nodi corrotti)
+            # e procede ritornando i dati eventualmente già elaborati.
+            pass
 
         return game_id, data_list
 

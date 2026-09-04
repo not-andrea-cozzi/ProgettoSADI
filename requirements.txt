@@ -1,7 +1,9 @@
+--index-url https://download.pytorch.org/whl/cu128
 torch
 torchvision
 torchaudio
-torch-geometric
+
+# Dipendenze generali
 zstandard
 python-chess
 pandas
@@ -9,3 +11,9 @@ tqdm
 scikit-learn
 seaborn
 pyyaml
+
+# Attenzione: torch-geometric e le sue dipendenze CUDA richiedono
+# un'installazione separata con -f (non supportato in requirements.txt).
+# Eseguire a mano:
+# pip install torch-geometric
+# pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.7.0+cu128.html

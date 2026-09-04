@@ -16,7 +16,7 @@ engine:
   syzygy_path: null
 
 raw_data:
-  games_zst: "RawData/lichess_db_standard_rated_2020-01.pgn.zst"
+  games_zst: ""
   puzzles_zst: "RawData/lichess_db_puzzle.csv.zst"
   fics_pgn: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
   club_csv: "RawData/club_games_data.csv"
@@ -28,7 +28,7 @@ time_stats:
 
 games_pipeline:
   output_base_filename: "games.pt"
-  max_games: 500000
+  max_games: 200000
   skip_games_part1: 0
   mate_range_min: 1
   mate_range_max: 10

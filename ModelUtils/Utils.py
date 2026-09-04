@@ -19,6 +19,7 @@ from tqdm import tqdm
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
 from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from ModelUtils.TimeChainGnn import TimedPolicyGNN
+from timegnn.train.early_stopping import EarlyStopping
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,24 +28,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger("utils")
 
+MAX_MATE_N = 10  # Deve coincidere con il modello
 
 # -------------------- YAML --------------------
 def load_yaml_config(path: str) -> dict:
-    """Carica un file YAML e restituisce un dizionario."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"File YAML {path} non trovato.")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-
 def load_config_as_namespace(path: str) -> SimpleNamespace:
-    """Carica YAML come SimpleNamespace (utile per compatibilità)."""
     return SimpleNamespace(**load_yaml_config(path))
-
 
 # -------------------- Decompressione CSV --------------------
 def resolve_puzzle_csv(path: str, chunk_size: int = 1024 * 1024) -> str:
-    """Se path è .csv.zst lo decomprime accanto a sé (skip se già fatto)."""
     if not path.endswith(".zst"):
         if not os.path.exists(path):
             raise FileNotFoundError(f"{path} non trovato.")
@@ -77,10 +74,8 @@ def resolve_puzzle_csv(path: str, chunk_size: int = 1024 * 1024) -> str:
         raise
     return out_csv
 
-
 # -------------------- Estrazione ID dai .pt --------------------
 def extract_puzzle_ids_from_pt(path: str) -> Set[str]:
-    """Estrae i PuzzleId (o problem_id) da un file .pt (lista di Data)."""
     ids: Set[str] = set()
     if not os.path.exists(path):
         logger.warning(f"{path} non trovato, nessun ID escluso da qui.")
@@ -95,48 +90,38 @@ def extract_puzzle_ids_from_pt(path: str) -> Set[str]:
             ids.add(str(prob_id))
     return ids
 
-
 def collect_seen_puzzle_ids(
     dataset_dir: str,
     merged_subfolder: str,
     holdout_subfolder: str,
     holdout_filename: str
 ) -> Set[str]:
-    """Raccoglie tutti i PuzzleId già usati in train/val/test + holdout."""
     seen: Set[str] = set()
-
     merged_dir = os.path.join(dataset_dir, merged_subfolder)
     for split in ("train", "val", "test"):
         p = os.path.join(merged_dir, f"merged_{split}.pt")
         found = extract_puzzle_ids_from_pt(p)
         logger.info(f"  merged_{split}.pt -> {len(found)} id esclusi")
         seen |= found
-
     holdout_path = os.path.join(dataset_dir, holdout_subfolder, holdout_filename)
     found = extract_puzzle_ids_from_pt(holdout_path)
     logger.info(f"  {holdout_filename} -> {len(found)} id esclusi")
     seen |= found
-
     logger.info(f"Totale PuzzleId già visti da escludere: {len(seen)}")
     return seen
 
-
 # -------------------- Mate extraction --------------------
 def extract_mate_n(themes: str) -> int:
-    """Estrae il numero di mosse per il mate (es. 'mateIn3' -> 3)."""
     for t in themes.split():
         if t.startswith("mateIn"):
             return int(t.replace("mateIn", ""))
     return 0
 
-
 def simulate_clock(rating: float, avg_time_by_rating: Dict[int, float]) -> float:
-    """Simula il tempo a disposizione in base al rating."""
     if avg_time_by_rating:
         bucket = round(float(rating) / 100) * 100
         return avg_time_by_rating.get(bucket, 15.0)
     return 5.0 + (float(rating) / 3000.0) * 55.0
-
 
 # -------------------- Costruzione dataset di validazione --------------------
 def build_validator_dataset(
@@ -148,10 +133,6 @@ def build_validator_dataset(
     seed: int = 42,
     chunksize: int = 50_000,
 ) -> List:
-    """
-    Costruisce un nuovo dataset di test usando puzzle mai visti, nel range mate specificato.
-    Unifica la logica di TestModelValidator e Validator.
-    """
     lo, hi = mate_range
     theme_pattern = "|".join(f"mateIn{n}" for n in range(lo, hi + 1))
     already_excluded = set(seen_ids)
@@ -176,7 +157,7 @@ def build_validator_dataset(
     logger.info(f"Righe candidate (mai viste, mate {lo}-{hi}, {len(csv_paths)} fonti): {len(candidate_rows)}")
     random.Random(seed).shuffle(candidate_rows)
 
-    from DatasetCreator.GraphBuilder import GraphBuilder  # import locale per evitare dipendenze circolari
+    from DatasetCreator.GraphBuilder import GraphBuilder  # import locale
 
     data_list = []
     for row in tqdm(candidate_rows, desc="Costruzione grafi test set"):
@@ -225,6 +206,9 @@ def build_validator_dataset(
 
             best_idx = legal.index(move)
             current_mate_n = max(1, mate_n_iniziale - (ply_idx // 2))
+            # Salta se la profondità supera il limite del modello
+            if current_mate_n > MAX_MATE_N:
+                break
 
             label = {"mate_n": current_mate_n, "best_move_idx": best_idx}
             try:
@@ -251,8 +235,11 @@ def build_validator_dataset(
 
     return data_list
 
-
 # -------------------- Modelli e predizione --------------------
+def _remove_compile_prefix(state_dict: dict) -> dict:
+    """Rimuove il prefisso '_orig_mod.' introdotto da torch.compile."""
+    return {k.replace("_orig_mod.", "", 1): v for k, v in state_dict.items()}
+
 def load_model(
     ckpt_path: str,
     use_time: bool,
@@ -273,10 +260,7 @@ def load_model(
 
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state = ckpt["model_state"]
-
-    if any(k.startswith("_orig_mod.") for k in state.keys()):
-        state = {k.replace("_orig_mod.", "", 1): v for k, v in state.items()}
-
+    state = _remove_compile_prefix(state)
     model.load_state_dict(state)
     model.eval()
     logger.info(
@@ -285,7 +269,6 @@ def load_model(
         f"val_mate_acc={ckpt.get('best_val_mate_acc', 0):.4f})"
     )
     return model
-
 
 def load_dataset_from_pt(
     pt_path: str,
@@ -296,6 +279,8 @@ def load_dataset_from_pt(
     if not os.path.exists(pt_path):
         raise FileNotFoundError(f"File {pt_path} non trovato.")
     data_list = torch.load(pt_path, weights_only=False)
+    # Filtra campioni con mate_n > MAX_MATE_N
+    data_list = [d for d in data_list if getattr(d, "mate_n", 0) <= MAX_MATE_N]
     dataset = PuzzleSequenceDataset(data_list)
     pin_memory = (device is not None and device.type == "cuda")
     return DataLoader(
@@ -307,9 +292,6 @@ def load_dataset_from_pt(
         pin_memory=pin_memory,
         persistent_workers=(num_workers > 0),
     )
-
-
-
 
 def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs: int) -> torch.Tensor:
     """Restituisce l'indice globale dello score massimo per ogni grafo."""
@@ -324,7 +306,6 @@ def _argmax_per_graph(scores: torch.Tensor, edge_batch: torch.Tensor, num_graphs
     argmax_global = torch.full((num_graphs,), sentinel, dtype=torch.long, device=scores.device)
     argmax_global.scatter_reduce_(0, edge_batch, masked, reduce="amin", include_self=True)
     return argmax_global
-
 
 def predict_batch(
     model: TimedPolicyGNN, batch, device: torch.device
@@ -350,17 +331,12 @@ def predict_batch(
         "edge_batch": edge_batch.cpu(),
     }
 
-
 def evaluate_model(
     model: torch.nn.Module,
     loader: DataLoader,
     device: torch.device,
     mate_loss_weight: float,
 ) -> dict:
-    """
-    Valuta il modello sul dataloader e restituisce metriche aggregate.
-    (Funzione estratta da TestModels.py)
-    """
     model.eval()
     total_loss = 0.0
     total_examples = 0
@@ -371,8 +347,6 @@ def evaluate_model(
     mate_pred_all = []
     rating_all = []
     has_rating = True
-
-    from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 
     with torch.no_grad():
         for batch in loader:
@@ -388,7 +362,6 @@ def evaluate_model(
             edge_batch = preds["edge_batch"].to(device)
             mate_logits = preds["mate_logits"].to(device)
 
-            # Loss
             log_probs = legal_move_log_probs(move_scores, edge_batch, num_graphs)
             target_idx = policy_targets_to_global_index(edge_batch, inner_batch.y, num_graphs)
             policy_loss = -log_probs[target_idx].mean()
@@ -397,24 +370,21 @@ def evaluate_model(
             mate_loss = torch.nn.functional.cross_entropy(mate_logits, mate_target)
             loss = policy_loss + mate_loss_weight * mate_loss
 
-            # Move acc
             move_correct = (move_pred == target_idx).cpu().numpy()
             move_correct_flags.append(move_correct)
 
-            # Mate acc
             mate_pred = preds["mate_pred"]
             mate_correct = (mate_pred == mate_target.cpu()).numpy()
             mate_correct_flags.append(mate_correct)
             mate_true_all.append(mate_target.cpu().numpy())
             mate_pred_all.append(mate_pred.numpy())
 
-            # Rating
-            if has_rating:
-                if hasattr(inner_batch, "rating") and inner_batch.rating is not None:
-                    rating_all.append(inner_batch.rating.detach().cpu().numpy().reshape(-1))
-                else:
-                    has_rating = False
-                    logger.warning("Campo 'rating' non trovato in inner_batch: plot per rating saltati.")
+            # Gestione robusta del rating
+            rating = getattr(inner_batch, "rating", None)
+            if rating is not None:
+                rating_all.append(rating.detach().cpu().numpy().reshape(-1))
+            else:
+                has_rating = False
 
             total_loss += loss.item() * num_graphs
             total_examples += num_graphs
@@ -437,3 +407,35 @@ def evaluate_model(
         "mate_n": mate_true_np,
         "rating": rating_np,
     }
+
+# -------------------- Funzioni di checkpoint unificate --------------------
+def save_checkpoint(path: str, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
+                    epoch: int, best_move_acc: float, best_mate_acc: float, early_stopper: EarlyStopping) -> None:
+    tmp_path = f"{path}.tmp"
+    # Rimuovi eventuale prefisso _orig_mod. prima di salvare
+    state = model.state_dict()
+    state = {k.replace("_orig_mod.", "", 1): v for k, v in state.items()}
+    torch.save({
+        "epoch": epoch,
+        "model_state": state,
+        "optimizer_state": optimizer.state_dict(),
+        "best_val_move_acc": best_move_acc,
+        "best_val_mate_acc": best_mate_acc,
+        "es_counter": early_stopper.counter,
+        "es_best_loss": early_stopper.best_loss,
+    }, tmp_path)
+    os.replace(tmp_path, path)
+
+def load_checkpoint(path: str, model: torch.nn.Module, optimizer: torch.optim.Optimizer,
+                    device: torch.device, early_stopper: EarlyStopping) -> Tuple[int, float, float]:
+    if not os.path.exists(path):
+        return 0, 0.0, 0.0
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    state = ckpt["model_state"]
+    # Rimuovi prefisso _orig_mod. (se presente) per compatibilità
+    state = {k.replace("_orig_mod.", "", 1): v for k, v in state.items()}
+    model.load_state_dict(state)
+    optimizer.load_state_dict(ckpt["optimizer_state"])
+    early_stopper.counter = ckpt.get("es_counter", 0)
+    early_stopper.best_loss = ckpt.get("es_best_loss", float("inf"))
+    return ckpt["epoch"], ckpt["best_val_move_acc"], ckpt["best_val_mate_acc"]

@@ -9,16 +9,120 @@ from tqdm import tqdm
 from torch_geometric.data import InMemoryDataset
 
 
-def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str):
-    os.makedirs(out_dir, exist_ok=True)
-    result = {}
-    for name in ("train", "val", "test"):
-        merged = list(puzzle_splits.get(name, [])) + list(games_splits.get(name, []))
-        random.Random(42 + hash(name) % 1000).shuffle(merged)
-        result[name] = merged
-        torch.save(merged, os.path.join(out_dir, f"merged_{name}.pt"))
-    return result
+def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
+                    mate_attr: str = "mate_n", ratios=(0.8, 0.1, 0.1),
+                    seed=42, mate_extractor=None):
+    """
+    Unisce puzzle_splits e games_splits, quindi suddivide in train/val/test
+    bilanciando per l'attributo 'mate' (di default 'mate_n').
 
+    Gestisce:
+      - Oggetti che sono tuple/liste (estrae il primo elemento)
+      - Attributi alternativi ('mate', 'mate_in', 'y')
+      - Tensori convertiti a scalare
+    """
+    import torch
+    from collections import defaultdict
+    import os
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 1. Raccogli tutti i dati da entrambi i tipi di split
+    all_data = []
+    for name in ("train", "val", "test"):
+        all_data.extend(puzzle_splits.get(name, []))
+        all_data.extend(games_splits.get(name, []))
+
+    # 2. Funzione per estrarre il grafo (se l'elemento è una tupla/lista)
+    def get_graph(item):
+        if isinstance(item, (tuple, list)) and len(item) > 0:
+            return item[0]          # prende il primo elemento (il Data)
+        return item
+
+    # 3. Funzione per ottenere il valore del mate
+    def get_mate_value(item):
+        if mate_extractor is not None:
+            return mate_extractor(item)
+
+        graph = get_graph(item)
+
+        # Prova vari nomi di attributo
+        for attr in [mate_attr, "mate_n", "mate", "mate_in", "y"]:
+            if hasattr(graph, attr):
+                val = getattr(graph, attr)
+                # Se è un tensore, convertilo a scalare intero
+                if isinstance(val, torch.Tensor):
+                    if val.numel() == 1:
+                        val = val.item()
+                    elif val.dim() == 1 and val.numel() > 1:
+                        # Se è un tensore 1D, prendiamo il primo valore? 
+                        # Di solito mate è scalare, ma se abbiamo per nodo, potrebbe servire una aggregazione.
+                        # Qui assumiamo che il valore sia lo stesso per tutti i nodi, quindi prendiamo il primo.
+                        val = val[0].item()
+                    else:
+                        # Se tensore multidimensionale, non sappiamo come gestirlo: solleviamo eccezione
+                        raise ValueError(f"Tensore '{attr}' con forma {val.shape} non gestito.")
+                # Se il valore è intero, lo restituiamo
+                if isinstance(val, (int, float)):
+                    return int(val)
+                # Se è un tensore ma già convertito, lo abbiamo già trasformato
+                return val
+        raise ValueError(
+            f"Nessun attributo di mate trovato nell'oggetto {type(graph)}. "
+            f"Attributi disponibili: {[a for a in dir(graph) if not a.startswith('_')]}"
+        )
+
+    # 4. Raggruppa per mate
+    groups = defaultdict(list)
+    for item in all_data:
+        mate = get_mate_value(item)
+        if mate is None:
+            # Se nonostante tutto il mate è None, scartiamo l'elemento (o solleviamo eccezione)
+            # Qui scegliamo di sollevare per individuare il problema
+            raise ValueError(f"Impossibile estrarre mate per oggetto: {item}")
+        groups[mate].append(item)
+
+    # 5. Suddivisione stratificata per gruppi
+    torch.manual_seed(seed)
+    train_ratio, val_ratio, test_ratio = ratios
+    train_list, val_list, test_list = [], [], []
+
+    for mate, items in groups.items():
+        n = len(items)
+        n_train = int(train_ratio * n)
+        n_val = int(val_ratio * n)
+        n_test = n - n_train - n_val
+        # Correzione per arrotondamenti
+        if n_test < 0:
+            n_train = max(0, n_train)
+            n_val = max(0, n_val)
+            n_test = n - n_train - n_val
+
+        perm = torch.randperm(n)
+        shuffled = [items[i] for i in perm.tolist()]
+
+        train_list.extend(shuffled[:n_train])
+        val_list.extend(shuffled[n_train:n_train + n_val])
+        test_list.extend(shuffled[n_train + n_val:])
+
+    # 6. Mescolanza globale degli split
+    def shuffle_list(lst):
+        if not lst:
+            return lst
+        perm = torch.randperm(len(lst))
+        return [lst[i] for i in perm.tolist()]
+
+    train_list = shuffle_list(train_list)
+    val_list = shuffle_list(val_list)
+    test_list = shuffle_list(test_list)
+
+    # 7. Salvataggio
+    for name, data in zip(("train", "val", "test"), (train_list, val_list, test_list)):
+        out_path = os.path.join(out_dir, f"merged_{name}.pt")
+        torch.save(data, out_path)
+        print(f"Salvato {out_path} con {len(data)} elementi")
+
+    return {"train": train_list, "val": val_list, "test": test_list}
 
 class PuzzleGraphDataset(InMemoryDataset):
     def __init__(self, csv_path, root, split="train", mate_range=(1, 5),

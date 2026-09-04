@@ -12,14 +12,15 @@ class GraphBuilder:
 
     Nodi: 64 caselle, feature = [has_piece, piece_type(0-6), color(-1/0/1), clock_norm,
                                turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
-    Archi: legal_move, attack, pin
+    Archi: legal_move (tipo 0), attack (tipo 1), pin (tipo 2)
 
-    NB sul campo "color" (colonna x[:,2]): e' il valore RAW, non un indice di embedding.
-    Convenzione: -1.0 = nessun pezzo sulla casella, 0.0 = pezzo nero (chess.BLACK == False == 0),
-    1.0 = pezzo bianco (chess.WHITE == True == 1). PolicyGNN.InputEncoder rimappa questo raw
-    in un indice 0/1/2 SOLO internamente (color_idx = color_raw + 1) per poter indicizzare
-    l'embedding; il dato salvato in Data.x resta sempre -1/0/1. Se in futuro si legge x[:,2]
-    altrove (es. dashboard/debug), va interpretato con QUESTA convenzione raw, non come indice.
+    IMPORTANTE per l'addestramento:
+    - Gli archi di tipo 0 (mosse legali) vengono aggiunti **prima** di tutti gli altri,
+      e il loro ordine è identico a quello della lista `legal_moves` utilizzata.
+    - L'attributo `data.y` deve contenere l'indice **locale** (all'interno di quella lista)
+      della mossa corretta.
+    - Durante il training, il modello filtrerà `edge_attr == 0` e manterrà esattamente
+      quell'ordine, quindi `data.y` resterà allineato.
     """
 
     CLOCK_CAP_SECONDS = 600.0  # oltre questa soglia clock_norm satura a 1.0 (log-scale)
@@ -27,30 +28,31 @@ class GraphBuilder:
     @staticmethod
     def _clock_norm(clock_seconds: float) -> float:
         """Normalizzazione log-scale: preserva la differenza tra clock brevi (bullet/blitz)
-        senza schiacciare tutto cio' che supera pochi minuti come farebbe una scala lineare."""
+        senza schiacciare tutto ciò che supera pochi minuti come farebbe una scala lineare."""
         cap = GraphBuilder.CLOCK_CAP_SECONDS
         denom = math.log1p(cap)
         if denom <= 0:
-            # difensivo: evita ZeroDivisionError se CLOCK_CAP_SECONDS venisse mai
-            # impostato a 0 o negativo da chi estende la classe.
             return 0.0
         return min(math.log1p(max(clock_seconds, 0.0)) / denom, 1.0)
 
     @staticmethod
-    def board_to_pyg_data(board: chess.Board, clock_seconds: float = 0.0, label: dict | None = None,
-                           legal_moves: list | None = None) -> Data:
+    def board_to_pyg_data(
+        board: chess.Board,
+        clock_seconds: float = 0.0,
+        label: dict | None = None,
+        legal_moves: list | None = None
+    ) -> Data:
         """Converte board in torch_geometric.data.Data.
 
-        clock_seconds: tempo da codificare nel nodo. IMPORTANTE — deve essere il tempo
-                       SPESO sulla mossa (durata), non il tempo residuo sull'orologio,
-                       come richiesto dalla spec ("move durations from real games").
-                       Il calcolo residuo->durata va fatto dal chiamante PRIMA di invocare
-                       questo metodo (vedi Component/ChessAnalysisPipeline._time_spent_for_move
-                       e Component/TimeStatBuilder, che gia' fanno questa conversione).
-
-        legal_moves: se già calcolate dal caller, passarle qui per evitare di rigenerarle
-                     (board.legal_moves) una seconda volta."""
-
+        Args:
+            board: posizione scacchistica.
+            clock_seconds: tempo SPESO sulla mossa (durata), non residuo.
+            label: dizionario opzionale con chiavi:
+                   - "mate_n": profondità di matto (intero)
+                   - "best_move_idx": indice della mossa migliore nella lista `legal_moves`
+            legal_moves: lista di mosse legali (opzionale, se non fornita viene calcolata).
+                         **L'ordine di questa lista determina l'indice usato in `best_move_idx`.**
+        """
         piece_map = board.piece_map()
         clock_norm = GraphBuilder._clock_norm(clock_seconds)
 
@@ -62,9 +64,9 @@ class GraphBuilder:
         castle_bq = 1.0 if board.has_queenside_castling_rights(chess.BLACK) else 0.0
         global_feat = [turn, is_check, castle_wk, castle_wq, castle_bk, castle_bq]
 
-        # --- costruzione feature nodi (vettorizzata, niente loop di 64 torch.tensor(...)) ---
+        # --- costruzione feature nodi (vettorizzata) ---
         x = torch.zeros((64, 10), dtype=torch.float)
-        x[:, 2] = -1.0  # default: nessun pezzo -> color = -1 (vedi convenzione in docstring classe)
+        x[:, 2] = -1.0  # default: nessun pezzo -> color = -1
         x[:, 3] = clock_norm
         x[:, 4:10] = torch.tensor(global_feat, dtype=torch.float)
 
@@ -77,23 +79,28 @@ class GraphBuilder:
             x[squares, 2] = colors
 
         # --- costruzione archi ---
-        edge_src, edge_dst, edge_type = [], [], []  # 0=legal_move, 1=attack, 2=pin
+        edge_src, edge_dst, edge_type = [], [], []
+        # 0 = legal_move, 1 = attack, 2 = pin
 
+        # 1. Mosse legali: aggiunte per prime, ordine = legal_moves (o board.legal_moves)
         if legal_moves is None:
             legal_moves = list(board.legal_moves)
+        # Se legal_moves è vuoto, aggiungiamo un arco fittizio per evitare tensori vuoti
+        if not legal_moves:
+            legal_moves = []  # non aggiungiamo nulla, ma gestiamo dopo
         for move in legal_moves:
             edge_src.append(move.from_square)
             edge_dst.append(move.to_square)
             edge_type.append(0)
 
+        # 2. Attacchi
         for sq, piece in piece_map.items():
             for target_sq in board.attacks(sq):
                 edge_src.append(sq)
                 edge_dst.append(target_sq)
                 edge_type.append(1)
 
-            # un'unica chiamata a pin() al posto di is_pinned()+pin(): se il pezzo non e'
-            # pinnato, pin() ritorna uno SquareSet "pieno" (lunghezza 64) da ignorare.
+            # 3. Pin
             pin_ray = board.pin(piece.color, sq)
             if len(pin_ray) < 64:
                 for ray_sq in pin_ray:
@@ -103,6 +110,7 @@ class GraphBuilder:
                         edge_dst.append(sq)
                         edge_type.append(2)
 
+        # Se non ci sono archi (caso raro, ad esempio re da solo), aggiungiamo un arco fittizio
         if not edge_src:
             edge_src, edge_dst, edge_type = [0], [0], [0]
 
@@ -113,7 +121,16 @@ class GraphBuilder:
         )
 
         if label:
-            data.mate_n = torch.tensor([label.get("mate_n") or 0], dtype=torch.long)
-            data.y = torch.tensor([label.get("best_move_idx", -1)], dtype=torch.long)
+            # mate_n: profondità del matto (deve essere ≤ MAX_MATE_N)
+            mate_n = label.get("mate_n", 0)
+            data.mate_n = torch.tensor([mate_n], dtype=torch.long)
+
+            # best_move_idx: indice locale nella lista legal_moves
+            best_idx = label.get("best_move_idx", -1)
+            # Controllo di sicurezza: se l'indice è -1 o fuori range, lo sostituiamo con 0
+            # (ma questo non dovrebbe accadere se il dataset è ben costruito)
+            if best_idx < 0 or (legal_moves and best_idx >= len(legal_moves)):
+                best_idx = 0
+            data.y = torch.tensor([best_idx], dtype=torch.long)
 
         return data
