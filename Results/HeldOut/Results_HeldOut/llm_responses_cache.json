@@ -1,0 +1,1002 @@
+{
+  "chesscom_5_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5b1k/8/p1pr1pQp/3p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_86_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"6k1/1p5n/p5Q1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_129_96": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5k2/1p1q1p2/p5pp/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_127_99": {
+    "raw_text": "We need to analyze the position. FEN: \"7k/4b2P/8/8/p6p/2r5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_142_69": {
+    "raw_text": "We need to analyze the position. FEN: \"5rk1/7p/p3p1p1/2p3P1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_140_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"4rk2/R6R/1p2rpp1/4p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_144_72": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"2r4k/5pp1/2P4p/5Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_117_189": {
+    "raw_text": "We have a chess position. Let's parse FEN: \"K7/7r/2k5/8/8/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_157_75": {
+    "raw_text": "We need to analyze the position. FEN: \"2r3k1/6p1/p3r2p/3Q4",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_165_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"7k/p4Qp1/7p/2p5/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_169_93": {
+    "raw_text": "We need to analyze the position. FEN: \"1k2r3/p3q1b1/2Q5/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_179_72": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5r2/5pk1/p7/1p6/7Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_171_93": {
+    "raw_text": "We need to analyze the position. FEN: \"8/5k2/5P1p/p6K/2P3P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_185_63": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"5r1k/pp5p/2p4b",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_180_123": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/8/1p6/8/pk6/2p5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_225_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"4b3/p1k5/2p1BQ2/6p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_238_45": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"1r4k1/4nppp/p1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_257_45": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"1k1rr3/1pp2ppp/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_200_126": {
+    "raw_text": "We have a chess position: FEN: 7Q/5K2/1k3b2/8/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_200_150": {
+    "raw_text": "We need to analyze the position: FEN: 8/2k2K2/7Q/8/8/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_252_72": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/2PN3k/3b1Q2/p4p2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_266_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"r4qk1/4p3/2p1R3/p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_242_90": {
+    "raw_text": "We need to analyze the position. FEN: \"3Q4/6R1/k1b5/1p1pq3/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_270_69": {
+    "raw_text": "We need to analyze the position. It's black to move. Let's decode FEN: \"1R2Q3/5ppk/5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_277_60": {
+    "raw_text": "We need to analyze the position. It's White to move. Let's decode FEN: \"4k3/3rn1p1/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_272_93": {
+    "raw_text": "We need to analyze the position. FEN: \"2r1R1k1/6p1/3q3p/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_287_69": {
+    "raw_text": "We need to analyze the position. FEN: \"2k5/ppp5/8/8/P1P5/5p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_302_87": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"8/P4rk1/2Q5/4P2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_310_96": {
+    "raw_text": "We need to analyze the position. FEN: \"6rk/2PPR1p1/5p1p/5P2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_307_105": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/8/4K3/8/3kp3/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_319_72": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"6k1/2R3pp/pr6/3b1p2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_325_90": {
+    "raw_text": "We need to analyze the position. FEN: \"4k3/1b5Q/p5q1/2n3b1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_321_84": {
+    "raw_text": "We need to analyze the position. FEN: \"r1r5/5k2/p2Q1B2/3P4",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_313_117": {
+    "raw_text": "We need to analyze the position. FEN: 8/5k2/2r5/3p4/3Pn3/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_327_75": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"6k1/p5pp/2p5/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_330_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1k2r1n1/p1r5/BpQ1P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_326_87": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"1r3k2/4bB2/4P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_328_99": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/8/1p5p/1P3R2/1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_343_99": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"7R/k5p1/P7/8/3P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_363_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5Q2/3N2pp/4ppk1/3b",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_350_126": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/3k4/6PR/5K2/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_354_111": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/6p1/8/4k3/6r1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_379_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"4Nr1k/p3QP2/1p4pp/8/P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_368_150": {
+    "raw_text": "We need to analyze the position. FEN: \"2r1k3/P6P/1pN1P1K1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_382_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1k2r3/1p1P4/2n5/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_390_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"3r1k2/Rn4pp/6q1/1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_391_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1r5r/4Rp1p/p2b1P2/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_384_123": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/8/8/8/5K2/6p1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_421_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"3r4/8/7Q/p2kq2P/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_400_96": {
+    "raw_text": "We need to analyze the position. White to move. Let's decode board.\n\nFEN: 6k1/3R2n1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_461_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"6k1/3q1pPp/4p3/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_466_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"4r1kb/5r1p/1Q1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_475_102": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/5R2/1p1kP1p1/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_473_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"7k/6p1/7p/4q3/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_476_108": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5R2/2P3pk/8/7p/6r",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_476_114": {
+    "raw_text": "We need to analyze the position. FEN: \"5R2/2R5/6pk/5Q1p/7r",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_488_102": {
+    "raw_text": "We need to analyze the position. FEN: \"1R6/8/7P/8/p7/P3K3/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_499_96": {
+    "raw_text": "We need to analyze the position. FEN: \"Q7/b5k1/7p/6p1/4Rp2/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_497_81": {
+    "raw_text": "We need to analyze the position. FEN: \"6r1/2B5/8/1pN2P2/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_522_63": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: r6r/6p1/1k3n1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_507_90": {
+    "raw_text": "We need to analyze the position. FEN: \"6k1/R7/6N1/7P/8/5PK1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_507_126": {
+    "raw_text": "We need to analyze the position. FEN: \"2k4r/5PR1/4KN2/8/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_528_63": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 4k3/6pp/8/4b3/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_534_123": {
+    "raw_text": "We need to analyze the position. FEN: \"Q7/3R4/8/4b3/8/3pkp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_557_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"r6r/pk6/8/4p2q/P1Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_542_93": {
+    "raw_text": "We need to analyze the position. FEN: 8/3b1k2/4p3/3pP1Kp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_515_180": {
+    "raw_text": "We have a chess position: FEN: 8/8/8/8/4R3/4K3/6k1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_568_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1n2r2k/5Qpp/8/2N5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_554_66": {
+    "raw_text": "We need to analyze the position. FEN: 8/1R6/P3pk2/4b1p1/7p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_580_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/p4R2/2Q5/kP6/P2P4",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_584_72": {
+    "raw_text": "We need to analyze the position. It's White to move. Let's decode board.\n\nFEN: 1k1q1Qn1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_584_78": {
+    "raw_text": "We need to analyze the position. FEN: \"6Q1/kp4p1/1p3pr1/1P3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_573_126": {
+    "raw_text": "We need to analyze the position. FEN: \"4kr2/8/4PQ2/1p1P4/1P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_573_138": {
+    "raw_text": "We need to analyze the position. FEN: 8/3PP2k/5B2/1p2K3/1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_589_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/1p3k1p/p2B2p1/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_582_123": {
+    "raw_text": "We need to analyze the position. FEN: \"6k1/1b6/2q5/2P3p1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_590_99": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 8/6b1/6k1/6p1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_590_105": {
+    "raw_text": "We need to analyze the position. FEN: \"8/6b1/6k1/8/5KP1/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_588_117": {
+    "raw_text": "We need to analyze the position. FEN: 8/5k2/8/8/1r3p1p/6",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_626_102": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/7k/p4P2/1p1p4/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_644_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/2pRR1p1/1p3k2/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_644_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/2R3R1/1p5k/7p/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_675_117": {
+    "raw_text": "We need to analyze the position. FEN: \"8/8/Rp3pk1/3p2p1/8/n3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_675_129": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/1p3pk1/3p2p1/2n",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_692_114": {
+    "raw_text": "We need to analyze the position. FEN: \"1Q6/2Q5/8/8/8/k5K1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_706_51": {
+    "raw_text": "We need to analyze the position. FEN: \"2R5/2pp1B1k/7p/6q1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_697_108": {
+    "raw_text": "We need to analyze the position. FEN: \"1Q6/8/8/8/6R1/P5P1/k",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_702_78": {
+    "raw_text": "We need to analyze the position. FEN: 8/3P1p1p/2kP2p1/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_708_87": {
+    "raw_text": "We need to analyze the position. FEN: \"8/1p6/2p5/1p1b4/PP6",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_714_78": {
+    "raw_text": "We need to analyze the position. FEN: \"8/1R6/8/k7/p1R5/BP3r2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_705_108": {
+    "raw_text": "We need to analyze the position. FEN: \"QQ3b2/8/2P5/5k2/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_730_84": {
+    "raw_text": "We need to analyze the position. FEN: \"3R4/1k6/p3Q3/4Pp2/Pp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_744_72": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5rk1/pbp2p1p/6pP/6q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_722_126": {
+    "raw_text": "We need to analyze the position: FEN: 8/5Pk1/4K3/8/8/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_763_57": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: r7/1p4kp/p6r/3p1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_745_156": {
+    "raw_text": "We need to analyze the position. FEN: \"2B5/8/7k/5R2/5KQ1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_772_90": {
+    "raw_text": "We need to analyze the position. FEN: 8/6K1/3R4/8/p3pk2/Pp5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_772_102": {
+    "raw_text": "We need to analyze the position. FEN: 8/6K1/8/3k4/p7/Pp2Q3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_772_108": {
+    "raw_text": "We need to analyze the position. FEN: 8/6K1/1k6/8/p2R4/PpQ",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_772_114": {
+    "raw_text": "We need to analyze the position. FEN: \"8/k5K1/1R6/2Q5/p7/Pp6",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_805_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"3r1k1r/R4p2/1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_819_51": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"r5k1/1p3ppp/5n",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_808_78": {
+    "raw_text": "We need to analyze the position. FEN: \"3k3r/1R4p1/2R2n2/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_815_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"4r3/2B4k/ppN3p1/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_823_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1R6/6pk/2pN1p1p/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_825_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 4k3/3r1p2/2p1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_831_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"r4rk1/pp3p2/2b5/4B",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_846_54": {
+    "raw_text": "We need to analyze the position. It's White to move. Let's decode board.\n\nFEN: 1r4k1/5pp1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_856_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"1r5k/6p1/2R3Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_864_75": {
+    "raw_text": "We need to analyze the position. FEN: \"r4r2/6bk/8/2p3PR/2P1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_809_147": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/8/8/6k1/8/5r2/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_832_132": {
+    "raw_text": "We need to analyze the position. FEN: \"1Q6/7P/4K3/8/8/8/k7",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_834_132": {
+    "raw_text": "We need to analyze the position. FEN: \"3R4/8/2k5/8/3Q1K2/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_863_117": {
+    "raw_text": "We need to analyze the position. FEN: \"6R1/8/8/2p5/8/1kp4p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_867_108": {
+    "raw_text": "We need to analyze the position. FEN: 8/6P1/8/pBP5/Pk6/8/6K",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_899_63": {
+    "raw_text": "We need to analyze the position. FEN: \"2r2r2/kp1Q4/P7/3Bp1q1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_899_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"2r5/kp1Q4/P7/3Bp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_882_123": {
+    "raw_text": "We need to analyze the position: FEN: 8/1q6/8/2k5/K7/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_920_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/pp1R3Q/7b/5p1k/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_914_129": {
+    "raw_text": "We need to analyze the position. FEN: 8/6B1/1P2q3/K1b4k/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_939_105": {
+    "raw_text": "We need to analyze the position. It's black to move. Let's decode FEN: \"8/8/6p1/2bP",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_953_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5R2/p5rk/1p3K2/2p2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_963_123": {
+    "raw_text": "We have a chess position: FEN: 8/8/8/8/8/4k3/4q3/7",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_968_117": {
+    "raw_text": "We need to analyze the position. FEN: 8/3K1k1p/8/2q5/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_968_165": {
+    "raw_text": "We need to analyze the position. FEN: \"1r6/8/K7/8/2k5/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_968_171": {
+    "raw_text": "We need to analyze the position. FEN: \"8/K7/8/2k5/8/8/1r6/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_984_57": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"6k1/Np3pbp/6p1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_976_126": {
+    "raw_text": "We need to analyze the position: FEN: 5k2/8/1R3P2/5K2/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_976_132": {
+    "raw_text": "We need to analyze the position: FEN: 2k5/1R3P2/4K3/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_979_150": {
+    "raw_text": "We need to analyze the position. FEN: \"Q7/1PK5/8/5k2/8/8/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1030_84": {
+    "raw_text": "We need to analyze the position. FEN: \"1r6/1P2k3/3RP1p1/2p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1028_93": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/6k1/1P5p/K4p1P/P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1059_93": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 5k2/6R1/4p3/1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1060_135": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/K3k3/2q5/8/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1060_141": {
+    "raw_text": "We need to analyze the position: FEN: 8/K7/3k4/1q6/8/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1062_81": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"7R/p2bk2P/5p2/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1076_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/3kn3/Bp1p1Q2/5Pp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1076_72": {
+    "raw_text": "We need to analyze the position. FEN: \"6Q1/2k2P2/1p1n4/1B",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1093_72": {
+    "raw_text": "We need to analyze the position. FEN: 8/3k4/5Q1B/6R1/8/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1087_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5N2/6kp/8/4pR1P/4",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1115_69": {
+    "raw_text": "We need to analyze the position. FEN: \"8/p1p2pkp/6p1/8/8/3P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1117_63": {
+    "raw_text": "We need to analyze the position. FEN: \"2r3k1/7p/pK3npP/8/P6b",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1123_39": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: r3k2r/1p3pp1/p4p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1120_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/4k1pp/3ppn2/1Q2N",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1133_75": {
+    "raw_text": "We need to analyze the position. FEN: \"2bk4/6q1/5r2/7P/5P2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1132_93": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/7k/8/3p4/8/q7/3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1132_99": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/8/7k/8/8/q2pK3/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1166_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"6nr/p6p/2QB1p2/3N2p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1146_108": {
+    "raw_text": "We need to analyze the position: FEN: 3k4/8/3p4/3K4/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1147_147": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/4k3/8/5K2/2q5/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1171_114": {
+    "raw_text": "We need to analyze the position. FEN: \"5Q2/8/1P6/K5k1/8/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1207_75": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"2k5/B1p2p2/2p2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1310_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5rk1/2p1n1pp/p7/2p5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1377_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1k6/pppr1p1p/8/8/1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1386_45": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"5k1r/2p2ppp/p1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1392_66": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"r4bk1/5p1p/2q1p1N",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1366_114": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/6Q1/1p3QK1/k7/8",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1430_42": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5rk1/pbp4p/2p2P2/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1430_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"2kr4/pbp2P1p/2p5/6Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1430_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5Q2/pbp2R1p/2p1k3/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1443_57": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"2r3k1/p5p1/1p2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1441_102": {
+    "raw_text": "We need to analyze the position. FEN: 8/6P1/5K2/8/8/k7/p7/Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1471_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"r7/1pp2k1p/p4BpQ/8/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1531_90": {
+    "raw_text": "We need to analyze the position. FEN: 8/5R1Q/8/p4ppp/5k2/7",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1555_93": {
+    "raw_text": "We need to analyze the position. FEN: \"6k1/p2K4/2p5/8/8/6q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1563_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"3k4/1p3R1p/2pp4/p7",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1549_120": {
+    "raw_text": "We need to analyze the position. FEN: 8/5Q1P/8/7P/3k4/6K",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1606_57": {
+    "raw_text": "We need to analyze the position. It's black to move. Let's decode FEN: \"3rr1k1/p4p1p/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1668_78": {
+    "raw_text": "We need to analyze the position. FEN: \"6Q1/7p/P6k/6p1/8/7P",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1688_57": {
+    "raw_text": "We need to analyze the position. It's black to move. Let's decode FEN: \"8/p4p1k/1p1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1669_114": {
+    "raw_text": "We need to analyze the position: FEN: 8/8/8/8/3K4/2Q5/5k",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1706_69": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 6k1/6p1/7p/5p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1756_51": {
+    "raw_text": "We need to analyze the position. FEN: \"2k4r/ppp2ppp/8/8/8/5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1766_60": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"1k1r4/p6p/1pQ1r1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1804_90": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"8/6p1/8/3PPP2/3p2Q",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1843_81": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"7k/3q4/7p/6pK",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1852_54": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"5r1k/ppp3p1/5pB1/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1896_93": {
+    "raw_text": "We need to analyze the position. FEN: 8/6kp/8/2p2K2/8/pq6/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1897_93": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: 8/7k/p2P4/7p/2",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1937_78": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"4Q3/7k/p1pp2p1/1p1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1970_48": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"3r1k1r/R1N3pp/5p1n",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1976_93": {
+    "raw_text": "We need to analyze the position. FEN: \"r5k1/1p6/2b3p1/2Kp",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_1985_81": {
+    "raw_text": "We need to analyze the position. FEN: \"5kN1/p4p2/5Kp1/5b1p",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2063_57": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"6kb/pp5p/6pP/3pq",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2086_93": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/4kp1p/3p4/4b3/5",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2163_96": {
+    "raw_text": "We need to analyze the position. It's White to move. Let's decode board.\n\nFEN: 5k2/8/4RPP",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2150_114": {
+    "raw_text": "We need to analyze the position. FEN: 8/P5p1/6Bp/4k3/8/2R3",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2178_81": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: \"7k/6p1/5p1p/4",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2232_72": {
+    "raw_text": "We need to analyze the position. Let's decode FEN: \"2R5/p6p/5Bpk/3N4/1",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2248_81": {
+    "raw_text": "We need to analyze the position. It's black to move. Let's decode FEN: \"8/1bk5/1ppp4/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2278_75": {
+    "raw_text": "We need to analyze the position. It's black to move. FEN: r6r/2p1pk2/5p2/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2304_60": {
+    "raw_text": "We need to analyze the position. FEN: \"5r2/5kp1/3QRp1B/1p6/",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2308_141": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199799, Req"
+  },
+  "chesscom_2328_111": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199785, Req"
+  },
+  "chesscom_2388_105": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199770, Req"
+  },
+  "chesscom_2483_123": {
+    "raw_text": "We need to analyze the position. FEN: 8/8/8/4qr2/2k5/8/4N",
+    "pred_move_uci": "",
+    "error": null
+  },
+  "chesscom_2801_42": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199982, Req"
+  },
+  "chesscom_2836_60": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199967, Req"
+  },
+  "chesscom_2862_72": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199953, Req"
+  },
+  "chesscom_2958_48": {
+    "raw_text": "",
+    "pred_move_uci": "",
+    "error": "rate limited (429): {\"error\":{\"message\":\"Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01m1hdtcsketrt6zsxrmvqf1ks` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199938, Req"
+  }
+}

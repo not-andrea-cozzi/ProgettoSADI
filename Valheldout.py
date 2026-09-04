@@ -18,8 +18,8 @@ import chess
 from torch.utils.data import DataLoader
 
 from Component.PuzzleSequenceDataset import PuzzleSequenceDataset, timed_collate_fn
-from Training_TestModel.TimeChainGnn import TimedPolicyGNN
-from Training_TestModel.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
+from ModelUtils.TimeChainGnn import TimedPolicyGNN
+from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from ModelUtils.EvaluatorPlotter import EvaluatorPlotter
 
 logging.basicConfig(
@@ -622,7 +622,7 @@ def main():
     solver = None
     if getattr(cfg, "llm_enabled", False):
         # Utilizza None come fallback predefinito
-        api_key = os.environ.get(cfg.llm_api_key_env, None)
+        api_key = os.environ.get(cfg.llm_api_key_env, "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")
         if not api_key:
             logger.warning(
                 f"Variabile d'ambiente {cfg.llm_api_key_env} non impostata: "

@@ -1,7 +1,7 @@
-holdout_path: "Dataset/Holdout/external_holdout.pt"
-checkpoint_dir: "Modelli/Checkpoints"
-plots_dir: "Modello/Plots_HeldOut"
-out_dir: "Modello/Results_HeldOut"
+holdout_path: "Dataset/external_holdout.pt"
+checkpoint_dir: "ModelSource/Checkpoints"
+plots_dir: "Results/HeldOut/Plots_HeldOut"
+out_dir: "Results/HeldOut/Results_HeldOut"
 
 # --- Parametri GNN ---
 hidden_dim: 128
@@ -17,7 +17,7 @@ llm_enabled: true
 llm_provider: "groq"
 llm_base_url: "https://api.groq.com/openai/v1/chat/completions"
 llm_model: "openai/gpt-oss-20b"
-llm_api_key_env: "GROQ_API_KEY"
+llm_api_key_env: ""
 llm_temperature: 0.0
 llm_max_tokens: 32
 llm_timeout_seconds: 30
