@@ -8,6 +8,21 @@ reali, con clock reale quando disponibile), sorgente multipla:
     - FICS:     PGN grezzo compresso (.pgn.bz2)          -> tag "fics"
     - Club:     CSV con colonna pgn (es. chess.com dump) -> tag "club"
 
+NOTA IMPORTANTE (fix ancdata / hang su multiprocessing.Pool):
+Il worker NON ritorna piu' oggetti torch_geometric.data.Data (che
+contengono tensori) attraverso il Pool. I tensori PyTorch condivisi tra
+processi tramite file descriptor (torch.multiprocessing sharing strategy
+"file_system") possono rompersi con errori tipo:
+
+    RuntimeError: received 0 items of ancdata
+
+che uccide silenziosamente il thread interno _handle_results del Pool e
+blocca run() indefinitamente in pool.join(). Per evitarlo, _worker()
+serializza ogni Data in un dict di tipi Python nativi (liste, int, float,
+str) via _data_to_plain_dict(), e run() lo ricostruisce in Data nel
+processo principale via _plain_dict_to_data(). Nessun tensore attraversa
+mai la pipe del Pool.
+
 Sostituisce sia ChessAnalysisPipeline (solo Lichess, mate 1-5, Pool+watchdog)
 sia ClubGamesTimedBuilder (multi-sorgente ma pensato per l'held-out) con
 un'unica classe pensata per il TRAIN:
@@ -80,6 +95,7 @@ import chess.engine
 import chess.pgn
 import pandas as pd
 import torch
+from torch_geometric.data import Data
 from tqdm import tqdm
 import zstandard as zstd  # pragma: no cover - opzionale se non si usa Lichess
 
@@ -441,6 +457,65 @@ class GamesBuilder:
             raise self._config_error_cls(f"syzygy_path non e' una cartella valida: {self.syzygy_path}.")
 
     # ================================================================
+    # SERIALIZZAZIONE Data <-> dict di tipi nativi
+    # ================================================================
+    # Il worker gira in un processo figlio e produce oggetti PyG Data
+    # (che contengono tensori). Passare tensori attraverso la pipe di
+    # multiprocessing.Pool puo' fallire con "RuntimeError: received 0
+    # items of ancdata" a seconda della sharing strategy attiva di
+    # torch.multiprocessing, bloccando l'intero Pool. Per evitarlo,
+    # _worker() converte ogni Data in un dict di tipi Python nativi
+    # (liste, int, float, str) PRIMA di ritornarlo, e run() lo
+    # riconverte in Data nel processo principale subito dopo la
+    # ricezione. Nessun tensore attraversa mai la pipe del Pool.
+
+    @staticmethod
+    def _data_to_plain_dict(data) -> Dict[str, Any]:
+        """Converte un torch_geometric.data.Data in tipi Python nativi
+        (niente tensori), sicuro da passare attraverso multiprocessing.Pool
+        senza dipendere dalla sharing strategy dei tensori PyTorch."""
+        return {
+            "x": data.x.tolist(),
+            "edge_index": data.edge_index.tolist(),
+            "edge_attr": data.edge_attr.tolist(),
+            "game_id": int(data.game_id),
+            "ply": int(data.ply),
+            "clock_seconds": float(data.clock_seconds),
+            "clock_is_real": bool(data.clock_is_real),
+            "clock_source": str(data.clock_source),
+            "mate_n": int(data.mate_n),
+            "best_move_idx": int(data.best_move_idx),
+            "best_move_uci": str(data.best_move_uci),
+            "fen": str(data.fen),
+            "source": str(data.source),
+            "problem_id": str(data.problem_id),
+            "rating": float(data.rating),
+        }
+
+    @staticmethod
+    def _plain_dict_to_data(d: Dict[str, Any]) -> Data:
+        """Ricostruisce un torch_geometric.data.Data da un dict di tipi
+        nativi prodotto da _data_to_plain_dict, nel processo principale."""
+        data = Data(
+            x=torch.tensor(d["x"], dtype=torch.float),
+            edge_index=torch.tensor(d["edge_index"], dtype=torch.long),
+            edge_attr=torch.tensor(d["edge_attr"], dtype=torch.long),
+        )
+        data.game_id = d["game_id"]
+        data.ply = d["ply"]
+        data.clock_seconds = d["clock_seconds"]
+        data.clock_is_real = d["clock_is_real"]
+        data.clock_source = d["clock_source"]
+        data.mate_n = d["mate_n"]
+        data.best_move_idx = d["best_move_idx"]
+        data.best_move_uci = d["best_move_uci"]
+        data.fen = d["fen"]
+        data.source = d["source"]
+        data.problem_id = d["problem_id"]
+        data.rating = d["rating"]
+        return data
+
+    # ================================================================
     # WORKER INIT (Stockfish + Syzygy + watchdog + signal handling)
     # ================================================================
 
@@ -708,8 +783,13 @@ class GamesBuilder:
     # WORKER: analizza una singola partita, source-agnostic
     # ================================================================
 
-    def _worker(self, args: Tuple[int, str, str]) -> Tuple[int, List[torch.Tensor]]:
-        """args = (game_id, pgn_text, source_tag)."""
+    def _worker(self, args: Tuple[int, str, str]) -> Tuple[int, List[Dict[str, Any]]]:
+        """args = (game_id, pgn_text, source_tag).
+
+        Ritorna (game_id, lista_di_dict) — MAI oggetti Data con tensori,
+        vedi nota in cima al file sulla serializzazione via
+        _data_to_plain_dict per evitare l'errore ancdata sul Pool.
+        """
         global _engine
         game_id, pgn_text, source_tag = args
 
@@ -735,7 +815,7 @@ class GamesBuilder:
             chess.BLACK: base_time if base_time > 0 else None,
         }
 
-        data_list: List[torch.Tensor] = []
+        data_list: List[Dict[str, Any]] = []
         node = game
         mate_lo, mate_hi = self.mate_range
         positions_analysed = 0
@@ -910,7 +990,7 @@ class GamesBuilder:
             rating_val = mover_rating[mover_color]
             data.rating = float(rating_val) if rating_val is not None else float("nan")
 
-            data_list.append(data)
+            data_list.append(self._data_to_plain_dict(data))
             node = next_node
 
         return game_id, data_list
@@ -1036,12 +1116,12 @@ class GamesBuilder:
     # RUN
     # ================================================================
 
-    def run(self) -> Tuple[Dict[str, List[torch.Tensor]], Dict[str, str]]:
+    def run(self) -> Tuple[Dict[str, List[Data]], Dict[str, str]]:
         output_directory = os.path.dirname(self.output_pt)
         if output_directory:
             os.makedirs(output_directory, exist_ok=True)
 
-        split_data: Dict[str, List[torch.Tensor]] = {"train": [], "val": [], "test": []}
+        split_data: Dict[str, List[Data]] = {"train": [], "val": [], "test": []}
         source_counts: Dict[str, int] = defaultdict(int)
         clock_source_counts: Dict[str, int] = defaultdict(int)
         mate_n_counts: Dict[int, int] = defaultdict(int)
@@ -1116,14 +1196,18 @@ class GamesBuilder:
             results = pool.imap_unordered(self._worker, task_stream, chunksize=1)
 
             pbar = tqdm(results, desc="Analisi Partite (multi-sorgente)", total=estimate, dynamic_ncols=True)
-            for game_id, data_list in pbar:
+            for game_id, raw_data_list in pbar:
                 processed_games += 1
 
-                if not data_list:
+                if not raw_data_list:
                     continue
 
                 accepted_games += 1
                 split_name = self._assign_game_split(game_id)
+
+                # Ricostruzione Data (con tensori) SOLO qui, nel processo
+                # principale — mai attraverso la pipe del Pool.
+                data_list = [self._plain_dict_to_data(d) for d in raw_data_list]
 
                 split_data[split_name].extend(data_list)
                 generated_positions += len(data_list)
@@ -1182,7 +1266,7 @@ class GamesBuilder:
 
     def _save_splits(
         self,
-        split_data: Dict[str, List[torch.Tensor]],
+        split_data: Dict[str, List[Data]],
         source_counts: Dict[str, int],
         clock_source_counts: Dict[str, int],
         mate_n_counts: Dict[int, int],
