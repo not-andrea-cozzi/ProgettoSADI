@@ -622,7 +622,7 @@ def main():
     solver = None
     if getattr(cfg, "llm_enabled", False):
         # Utilizza None come fallback predefinito
-        api_key = os.environ.get(cfg.llm_api_key_env, "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")
+        api_key = os.environ.get(cfg.llm_api_key_env, "")
         if not api_key:
             logger.warning(
                 f"Variabile d'ambiente {cfg.llm_api_key_env} non impostata: "
