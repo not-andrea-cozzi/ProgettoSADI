@@ -49,6 +49,7 @@ import multiprocessing as mp
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, Optional, Tuple
+
 import chess
 import chess.engine
 import chess.pgn
@@ -56,8 +57,7 @@ import pandas as pd
 import torch
 from torch_geometric.data import Data
 from tqdm import tqdm
-import zstandard as zstd  # pragma: no cover - opzionale se non si usa Lichess
-
+import zstandard as zstd  
 from DatasetPipeline.GraphBuilder import GraphBuilder
 
 # ============================================================================
@@ -436,6 +436,11 @@ class GamesBuilder:
 
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, _worker_sigterm_handler)
+
+        try:
+            os.setpgrp()   # <-- NUOVO: rende il worker leader del suo gruppo processi
+        except AttributeError:
+            pass  # Windows: ignoriamo, ma il sistema è pensato per Linux
 
         try:
             _engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
@@ -1012,8 +1017,10 @@ class GamesBuilder:
         def cleanup_after_failure() -> None:
             old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
+                # 1. Termina gentilmente il pool (SIGTERM ai worker)
                 pool.terminate()
 
+                # 2. Aspetta i worker con un timeout
                 timeout = self.pool_join_timeout if self.pool_join_timeout is not None else 15.0
                 deadline = time.monotonic() + timeout
                 for proc in pool._pool:
@@ -1022,34 +1029,37 @@ class GamesBuilder:
                         break
                     proc.join(timeout=remaining)
 
+                # 3. Identifica i worker ancora vivi
                 still_alive = [p for p in pool._pool if p.is_alive()]
                 if still_alive:
-                    stale_pids = [p.pid for p in still_alive]
                     print(
                         f"\n[WARNING] {len(still_alive)} worker non terminati entro "
-                        f"{timeout}s. Killo (SIGKILL) worker e Stockfish orfani."
+                        f"{timeout}s. Invio SIGKILL al gruppo processi..."
                     )
-                    try:
-                        import psutil
-                        for pid in stale_pids:
+                    for proc in still_alive:
+                        try:
+                            # Uccide l'intero gruppo: worker + tutti i suoi figli (Stockfish)
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except (OSError, AttributeError):
+                            # Fallback: uccide solo il processo worker
                             try:
-                                parent = psutil.Process(pid)
-                                for child in parent.children(recursive=True):
-                                    child.kill()
-                                parent.kill()
-                            except psutil.NoSuchProcess:
-                                continue
-                    except ImportError:
-                        print(
-                            "[WARNING] 'psutil' non disponibile: impossibile forzare "
-                            "la terminazione dei processi orfani. Verificare manualmente "
-                            "con 'ps aux | grep stockfish'."
-                        )
+                                os.kill(proc.pid, signal.SIGKILL)
+                            except OSError:
+                                pass
 
-                pool.join()
+                    # Aspetta un attimo che il kernel gestisca i segnali
+                    time.sleep(0.5)
+
+                    # Raccogli i processi per evitare zombie
+                    for proc in still_alive:
+                        try:
+                            proc.join(timeout=1.0)
+                        except Exception:
+                            pass
+
             finally:
+                # Ripristina la gestione di SIGINT per permettere ulteriori Ctrl+C
                 signal.signal(signal.SIGINT, old_sigint)
-
         try:
             task_stream = self._iter_all_tasks()
             results = pool.imap_unordered(self._worker, task_stream, chunksize=1)

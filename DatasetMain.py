@@ -7,8 +7,8 @@ import zstandard as zstd
 from tqdm import tqdm
 import yaml
 from DatasetPipeline.GamesBuilder import GamesBuilder, SourceSpec
-from DatasetPipeline.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
-from DatasetPipeline. RatingStats import compute_rating_stats, save_rating_stats
+from DatasetPipeline.PuzzleGraphDataset import PuzzleGraphDataset
+from DatasetPipeline.RatingStats import compute_rating_stats, save_rating_stats
 from DatasetPipeline.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetPipeline.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 
@@ -237,6 +237,21 @@ def main():
     # ========================================================================
     # STEP 1: Statistiche tempo medio per rating
     # ========================================================================
+    # FIX: prima questo step chiamava require_file() incondizionato su
+    # raw_data.games_zst, quindi con games_zst assente/vuoto (come nel
+    # main.yaml di esempio, dove vale "") l'intera pipeline si bloccava gia'
+    # qui con un PipelineConfigError -- anche se games_zst e' trattato come
+    # sorgente OPZIONALE ovunque altrove (vedi _step_games_pipeline poco
+    # sotto, che salta silenziosamente Lichess/FICS/Club se il rispettivo
+    # path e' assente). Ora il comportamento e' coerente: se games_zst non
+    # e' configurato/il file non esiste E non c'e' gia' un time_stats_path
+    # valido da una run precedente, lo step viene saltato con un log
+    # informativo e avg_time_by_rating resta {} (GamesBuilder e
+    # PuzzleGraphDataset gestiscono gia' correttamente un dizionario vuoto,
+    # ricadendo sui loro fallback default_move_seconds/clock costante).
+    games_zst_path = raw_cfg.get("games_zst")
+    games_zst_available = bool(games_zst_path) and os.path.exists(games_zst_path)
+
     def _step_time_stats():
         require_file(raw_cfg["games_zst"], "File PGN compresso necessario per il calcolo delle durate mosse.")
         builder = TimeStatsBuilder(
@@ -247,7 +262,14 @@ def main():
         stats = builder.build_and_save(time_stats_path)
         ctx["avg_time_by_rating"] = stats
 
-    if step is None or step == "time_stats":
+    if not games_zst_available and not file_ready(time_stats_path):
+        logger.info(
+            "raw_data.games_zst non configurato o file assente: step 'time_stats' "
+            "saltato, avg_time_by_rating restera' vuoto (fallback su "
+            "default_move_seconds/clock costante nei builder a valle)."
+        )
+        ctx.setdefault("avg_time_by_rating", {})
+    elif games_zst_available and (step is None or step == "time_stats"):
         run_step(state, "time_stats", is_ready_fn=lambda: file_ready(time_stats_path), do_fn=_step_time_stats)
 
     if file_ready(time_stats_path) and "avg_time_by_rating" not in ctx:
@@ -415,8 +437,16 @@ def main():
     }
 
     def _step_build_puzzles():
+        # FIX: fallback difensivo a {} invece di crashare con
+        # FileNotFoundError se questo step viene invocato isolatamente
+        # (pipeline.step == "build_puzzles") in uno scenario in cui
+        # time_stats non e' mai stato eseguito ne' presente su disco
+        # (vedi FIX sopra allo STEP 1: ora e' un caso legittimo, non un
+        # errore di configurazione).
         if "avg_time_by_rating" not in ctx:
-            ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
+            ctx["avg_time_by_rating"] = (
+                load_avg_time_by_rating(time_stats_path) if file_ready(time_stats_path) else {}
+            )
         splits = build_puzzle_pt(
             csv_path=puzzle_csv_path,
             root=puzzles_dir,

@@ -1,23 +1,33 @@
 pipeline:
   dataset_dir: "Dataset"
-  holdout_subfolder: "Games_v1_timed"
   log_file: "club_games_timed.log"
   log_level: "INFO"
+  force_recompute: true          # <--- IMPOSTA A TRUE per rigenerare i file con le nuove regole
+  state_file: "pipeline_state.json"
+  games_subfolder: "Games"
+  merged_subfolder: "Train"
 
 engine:
   stockfish_path: "/usr/games/stockfish"
-  threads: 6
-  hash_mb: 128
+  threads: 1
+  hash_mb: 32
+  syzygy_path: null
 
 raw_data:
-  external_csv: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
+  external_csv: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn"
+  games_zst: ""
+  fics_pgn: ""
+  club_csv: ""
 
 club_games_timed:
   output_filename: "games_timed_test_one.pt"
   jsonl_filename: "games_imed_test_one.jsonl"
-  skip_games: 0
-  max_games_to_scan: 5000
-  pgn_col: "pgn"
+  
+  # --- MODIFICHE PER SALTO E LIMITE ---
+  fics_skip_games: 300000        
+  fics_max_games: 83000         
+  # ------------------------------------
+  
   mate_range_min: 1
   mate_range_max: 10
   time_limit_seconds: 0.2
@@ -36,6 +46,19 @@ club_games_timed:
   skip_if_in_check: false
   workers: null
   chunk_games: 200
-  checkpoint_every: 50
+  checkpoint_every: 5000
   pool_join_timeout: 15.0
   avg_time_by_rating_json: "Dataset/avg_time_by_rating.json"
+  min_rating: 700
+  max_rating: null
+  min_material_diff_for_mate_attempt: 3
+  require_heavy_piece: true
+  skip_forced_moves: false
+  dedupe_positions: true
+  skip_trivial_endgame: true
+  search_depth: 8
+
+splits:
+  train_ratio: 0.70
+  val_ratio: 0.10
+  test_ratio: 0.20
