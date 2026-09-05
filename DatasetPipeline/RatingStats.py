@@ -1,19 +1,3 @@
-"""
-RatingStats.py
-
-Sostituisce NormalizationEncoder.py nello schema compresso.
-
-Con lo schema compresso (vedi DatasetCreator/GraphBuilder.py):
-  - clock_norm e' gia' log-normalizzato in [0, 1] alla fonte (non serve
-    nessuno scaler aggiuntivo).
-  - rating e' salvato in scala Elo grezza (float16, NaN se assente): la
-    normalizzazione (es. (rating - mean) / std) va fatta DENTRO il forward
-    del modello, non come step separato di preprocessing su disco, perche'
-    non c'e' piu' nessun 'x' denso su cui applicare uno StandardScaler
-    colonna per colonna: l'unico valore continuo rimasto e' rating, ed e'
-    un singolo scalare per sample.
-
-"""
 import json
 import math
 import os

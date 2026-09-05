@@ -8,7 +8,7 @@ from tqdm import tqdm
 import yaml
 from DatasetPipeline.GamesBuilder import GamesBuilder, SourceSpec
 from DatasetPipeline.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
-from DatasetPipeline.RatingStats import compute_rating_stats, save_rating_stats
+from DatasetPipeline. RatingStats import compute_rating_stats, save_rating_stats
 from DatasetPipeline.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetPipeline.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 
