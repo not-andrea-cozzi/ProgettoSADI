@@ -81,7 +81,7 @@ try:
 except ImportError:  # pragma: no cover - dipendenza opzionale se non serve .zst
     zstd = None
 
-from DatasetCreator.GraphBuilder import GraphBuilder
+from DatasetPipeline.GraphBuilder import GraphBuilder
 
 # ============================================================================
 # SORGENTI SUPPORTATE (rilevate automaticamente da estensione file)

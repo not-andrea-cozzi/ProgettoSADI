@@ -6,11 +6,11 @@ import torch
 import zstandard as zstd
 from tqdm import tqdm
 import yaml
-from Component.GamesBuilder import GamesBuilder, SourceSpec
-from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
-from DatasetCreator.NormalizationEncoder import NormalizationEncoder
-from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
-from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
+from DatasetPipeline.GamesBuilder import GamesBuilder, SourceSpec
+from DatasetPipeline.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
+from DatasetPipeline.RatingStats import compute_rating_stats, save_rating_stats
+from DatasetPipeline.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
+from DatasetPipeline.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 
 logger = logging.getLogger("main")
 
@@ -86,6 +86,11 @@ def validate_config(cfg: Dict[str, Any]):
     m_train = (cfg["games_pipeline"].get("mate_range_min", 1), cfg["games_pipeline"].get("mate_range_max", 5))
     if m_train[0] > m_train[1] or m_train[0] < 1:
         raise PipelineConfigError(f"Range mate non valido per train games: {m_train}")
+    if m_train[1] > 255:
+        raise PipelineConfigError(
+            f"mate_range_max={m_train[1]} eccede 255: non rappresentabile nello schema "
+            f"compresso (mate_n e' salvato come uint8)."
+        )
 
 
 @retry(max_attempts=3, base_delay=3.0, exceptions=(OSError, zstd.ZstdError))
@@ -150,44 +155,6 @@ def build_puzzle_pt(
     return splits
 
 
-def convert_puzzle_data(raw_data):
-    """
-    Converte i dati dei puzzle (tuple di (Data, ...)) in una lista di oggetti Data
-    con attributo mate_n scalare (intero).
-    """
-    converted = []
-    for item in raw_data:
-        # Estrai il Data (primo elemento se è una tupla/lista)
-        if isinstance(item, (tuple, list)):
-            data = item[0]
-        else:
-            data = item
-
-        # Calcola mate_n a partire da y o mate_n esistente
-        if hasattr(data, 'y'):
-            mate = int(data.y) + 1  # y è 0‑based per mate in 1..5
-        elif hasattr(data, 'mate_n'):
-            mate_val = data.mate_n
-            if isinstance(mate_val, torch.Tensor):
-                if mate_val.numel() == 1:
-                    mate = int(mate_val.item())
-                else:
-                    # Prendi il valore più frequente (moda)
-                    flat = mate_val.flatten()
-                    if flat.dtype in (torch.int, torch.long):
-                        mate = int(torch.mode(flat)[0].item())
-                    else:
-                        mate = int(flat[0].item())
-            else:
-                mate = int(mate_val)
-        else:
-            raise ValueError("Nessun attributo 'y' o 'mate_n' trovato nell'oggetto puzzle")
-
-        # Imposta l'attributo mate_n sull'oggetto Data
-        data.mate_n = mate
-        converted.append(data)
-    return converted
-
 
 def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
     if state.is_done(step_name) and is_ready_fn():
@@ -211,7 +178,7 @@ def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
 
 VALID_STEPS = [
     "time_stats", "games_pipeline", "decompress_puzzles",
-    "build_puzzles", "merge_and_normalize",
+    "build_puzzles", "merge_and_compute_rating_stats",
 ]
 
 CONFIG_PATH = "Yaml/main.yaml"
@@ -263,9 +230,7 @@ def main():
     mate_train_range = (games_cfg.get("mate_range_min", 1), games_cfg.get("mate_range_max", 5))
     split_ratios = (split_cfg.get("train_ratio", 0.8), split_cfg.get("val_ratio", 0.1), split_cfg.get("test_ratio", 0.1))
 
-    # Parametri di normalizzazione
-    normalize_enabled = pipe_cfg.get("normalize", True)
-    use_existing_games = pipe_cfg.get("use_existing_games", False)  # SE TRUE: carica games già generati
+    use_existing_games = pipe_cfg.get("use_existing_games", False)
 
     ctx: Dict[str, Any] = {}
 
@@ -289,7 +254,7 @@ def main():
         ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
 
     # ========================================================================
-    # STEP 2: Pipeline partite Lichess -> grafi posizioni matto 1-5
+    # STEP 2: Pipeline partite -> grafi posizioni matto (schema compresso)
     # ========================================================================
     games_paths = {
         "train": f"{os.path.splitext(games_output_base)[0]}_train.pt",
@@ -400,16 +365,17 @@ def main():
         ctx["games_splits"] = splits
         ctx["games_paths"] = paths
 
-    # Se use_existing_games=True, carica i file già generati senza rigenerarli
     if use_existing_games:
-        logger.info("⚠️ 'use_existing_games' attivo: carico i file games già generati.")
+        logger.info("'use_existing_games' attivo: carico i file games gia' generati.")
         try:
             ctx["games_splits"] = {
                 s: torch.load(games_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
-            logger.info(f"✅ Caricati games: train={len(ctx['games_splits']['train'])}, "
-                        f"val={len(ctx['games_splits']['val'])}, test={len(ctx['games_splits']['test'])}")
+            logger.info(
+                f"Caricati games: train={len(ctx['games_splits']['train'])}, "
+                f"val={len(ctx['games_splits']['val'])}, test={len(ctx['games_splits']['test'])}"
+            )
         except FileNotFoundError as e:
             logger.error(f"File games non trovati: {e}. Disabilita use_existing_games o genera i file.")
             raise
@@ -441,7 +407,7 @@ def main():
         )
 
     # ========================================================================
-    # STEP 4: Costruzione grafi puzzle con tempo sintetico e split
+    # STEP 4: Costruzione grafi puzzle (schema compresso) con tempo sintetico
     # ========================================================================
     puzzle_processed_paths = {
         split: os.path.join(puzzles_dir, "processed", f"puzzle_{split}.pt")
@@ -470,125 +436,79 @@ def main():
         )
 
     # ========================================================================
-    # STEP 5: MERGE + NORMALIZZAZIONE + OTTIMIZZAZIONE (NUOVO!)
+    # STEP 5: MERGE + STATISTICHE RATING (sostituisce merge_and_normalize)
     # ========================================================================
     merged_paths = {
         split: os.path.join(merged_dir, f"merged_{split}.pt")
         for split in ("train", "val", "test")
     }
+    rating_stats_path = os.path.join(merged_dir, "rating_stats.json")
 
-    def _step_merge_and_normalize():
-        # 1. Carica i puzzle (se non già in ctx)
+    def _step_merge_and_compute_rating_stats():
         if "puzzle_splits" not in ctx:
-            puzzle_raw = {
-                s: torch.load(puzzle_processed_paths[s], weights_only=False)
-                for s in ("train", "val", "test")
-            }
             ctx["puzzle_splits"] = {
-                s: convert_puzzle_data(puzzle_raw[s])
+                s: list(PuzzleGraphDataset(
+                    puzzle_csv_path, puzzles_dir, split=s,
+                    mate_range=mate_train_range,
+                    max_puzzles=puzzle_cfg.get("max_puzzles", 100000),
+                    avg_time_by_rating=ctx.get("avg_time_by_rating", {}),
+                    split_ratios=split_ratios,
+                ))
                 for s in ("train", "val", "test")
             }
 
-        # 2. Carica i games (se non già in ctx)
         if "games_splits" not in ctx:
             ctx["games_splits"] = {
                 s: torch.load(games_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
 
-        # 3. Combina TUTTI i dati per addestrare gli scaler
-        all_data = []
         for split in ("train", "val", "test"):
+            combined = []
             if split in ctx["puzzle_splits"]:
-                all_data.extend(ctx["puzzle_splits"][split])
+                combined.extend(ctx["puzzle_splits"][split])
             if split in ctx["games_splits"]:
-                all_data.extend(ctx["games_splits"][split])
+                combined.extend(ctx["games_splits"][split])
 
-        logger.info(f"📊 Totale campioni per normalizzazione: {len(all_data)}")
+            if not combined:
+                logger.warning(f"Split {split} vuoto dopo il merge.")
+                continue
 
-        # 4. Se la normalizzazione è abilitata
-        if normalize_enabled:
-            # Crea encoder con ottimizzazioni
-            encoder = NormalizationEncoder(
-                scaler_type=pipe_cfg.get("scaler_type", "standard"),
-                clip_range=pipe_cfg.get("clip_range", (-5.0, 5.0)),
-                handle_missing=pipe_cfg.get("handle_missing", "default"),
-                default_rating=float(pipe_cfg.get("default_rating", 1500)),
-                default_clock=float(pipe_cfg.get("default_clock", 30)),
-                copy=True,
-                remove_constant_x_cols=pipe_cfg.get("remove_constant_x_cols", True),
-                remove_strings=pipe_cfg.get("remove_strings", True),
-                keep_puzzle_id=pipe_cfg.get("keep_puzzle_id", True),
+            out_path = merged_paths[split]
+            tmp_path = out_path + ".tmp"
+            torch.save(combined, tmp_path)
+            os.replace(tmp_path, out_path)
+            size_mb = os.path.getsize(out_path) / (1024 * 1024)
+            logger.info(f"Salvato {split}: {len(combined)} campioni in {out_path} ({size_mb:.2f} MB)")
+
+        train_data = torch.load(merged_paths["train"], weights_only=False) if file_ready(merged_paths["train"]) else []
+        if not train_data:
+            raise PipelineConfigError("Merge del train set vuoto: impossibile calcolare rating_stats.")
+
+        stats = compute_rating_stats(train_data)
+        save_rating_stats(stats, rating_stats_path)
+        logger.info(
+            f"Rating stats (train): mean={stats['mean']:.1f} std={stats['std']:.1f} "
+            f"copertura={stats['coverage']*100:.1f}% ({stats['n_valid']}/{stats['n_total']})"
+        )
+        if stats["coverage"] < 0.5:
+            logger.warning(
+                "Copertura rating sotto il 50%%: la normalizzazione rating nel modello "
+                "si affidera' spesso al fallback 'assente' (vedi RatingStats.normalize_rating). "
+                "Verificare il parsing di WhiteElo/BlackElo nelle sorgenti games."
             )
 
-            # 5. Rileva colonne costanti su TUTTI i dati
-            constant_cols = encoder.detect_constant_columns(all_data, x_attr='x')
-            if constant_cols:
-                logger.info(f"🔍 Colonne costanti rimosse da x: {constant_cols}")
-
-            # 6. Addestra gli scaler
-            encoder.fit(all_data)
-
-            # 7. Salva encoder per future inferenze
-            encoder_path = os.path.join(merged_dir, "normalization_encoder.pkl")
-            encoder.save(encoder_path)
-            logger.info(f"💾 Encoder salvato in {encoder_path}")
-
-            # 8. Normalizza e ottimizza ogni split
-            for split in ("train", "val", "test"):
-                combined = []
-                if split in ctx["puzzle_splits"]:
-                    combined.extend(ctx["puzzle_splits"][split])
-                if split in ctx["games_splits"]:
-                    combined.extend(ctx["games_splits"][split])
-
-                if not combined:
-                    logger.warning(f"⚠️ Split {split} vuoto dopo il merge.")
-                    continue
-
-                # Applica normalizzazione + ottimizzazioni
-                normalized = []
-                for item in tqdm(combined, desc=f"Normalizzazione {split}"):
-                    norm_item = encoder.transform(item)
-                    normalized.append(norm_item)
-
-                # Salva
-                out_path = merged_paths[split]
-                torch.save(normalized, out_path)
-                # Stima dimensione
-                size_mb = os.path.getsize(out_path) / (1024 * 1024)
-                logger.info(f"✅ Salvato {split}: {len(normalized)} campioni in {out_path} ({size_mb:.1f} MB)")
-
-        else:
-            # NORMALIZZAZIONE DISABILITATA: salva solo merge (senza normalizzazione)
-            logger.info("⚠️ Normalizzazione disabilitata: salvo solo merge senza normalizzare.")
-            for split in ("train", "val", "test"):
-                combined = []
-                if split in ctx["puzzle_splits"]:
-                    combined.extend(ctx["puzzle_splits"][split])
-                if split in ctx["games_splits"]:
-                    combined.extend(ctx["games_splits"][split])
-
-                if not combined:
-                    continue
-
-                out_path = merged_paths[split]
-                torch.save(combined, out_path)
-                size_mb = os.path.getsize(out_path) / (1024 * 1024)
-                logger.info(f"✅ Salvato {split}: {len(combined)} campioni in {out_path} ({size_mb:.1f} MB)")
-
-    if step is None or step == "merge_and_normalize":
+    if step is None or step == "merge_and_compute_rating_stats":
         run_step(
             state,
-            "merge_and_normalize",
-            is_ready_fn=lambda: all(torch_pt_ready(p) for p in merged_paths.values()),
-            do_fn=_step_merge_and_normalize,
+            "merge_and_compute_rating_stats",
+            is_ready_fn=lambda: all(torch_pt_ready(p) for p in merged_paths.values()) and file_ready(rating_stats_path),
+            do_fn=_step_merge_and_compute_rating_stats,
         )
 
     logger.info("Pipeline completata con successo.")
     logger.info(f"Dataset train/val/test pronti in: {merged_dir}")
-    if normalize_enabled:
-        logger.info(f"Parametri normalizzazione salvati in: {os.path.join(merged_dir, 'normalization_encoder.pkl')}")
+    logger.info(f"Statistiche rating salvate in: {rating_stats_path}")
 
 
 if __name__ == "__main__":

@@ -157,7 +157,7 @@ def build_validator_dataset(
     logger.info(f"Righe candidate (mai viste, mate {lo}-{hi}, {len(csv_paths)} fonti): {len(candidate_rows)}")
     random.Random(seed).shuffle(candidate_rows)
 
-    from DatasetCreator.GraphBuilder import GraphBuilder  # import locale
+    from DatasetPipeline.GraphBuilder import GraphBuilder  # import locale
 
     data_list = []
     for row in tqdm(candidate_rows, desc="Costruzione grafi test set"):

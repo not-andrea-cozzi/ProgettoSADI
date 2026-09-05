@@ -1,98 +1,69 @@
+"""
+PuzzleGraphDataset.py
+
+Costruisce il dataset puzzle (schema compresso, vedi DatasetCreator/
+GraphBuilder.py) a partire dal CSV Lichess puzzle standard:
+
+    PuzzleId, FEN, Moves, Rating, RatingDeviation, Popularity, NbPlays,
+    Themes, GameUrl, OpeningTags, DailyDate
+
+Solo i campi utili alla predizione della best move (+ mate_n ausiliario)
+finiscono nel tensor .pt: PuzzleId/GameUrl/OpeningTags/DailyDate/
+RatingDeviation/Popularity/NbPlays NON entrano nel sample compresso (non
+servono al modello per predire la mossa) — vengono pero' preservati nel
+.jsonl di debug per audit/tracciabilita', insieme a fen/best_move_uci.
+"""
 import os
 import random
-from typing import Tuple
-from DatasetCreator.GraphBuilder import GraphBuilder
+from typing import Tuple, Optional, Dict, Any, List
+
 import chess
 import torch
 import pandas as pd
 from tqdm import tqdm
-from torch_geometric.data import InMemoryDataset
+from torch_geometric.data import InMemoryDataset, Data
+
+from DatasetPipeline.GraphBuilder import GraphBuilder
 
 
 def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
-                    mate_attr: str = "mate_n", ratios=(0.8, 0.1, 0.1),
-                    seed=42, mate_extractor=None):
+                    ratios=(0.8, 0.1, 0.1), seed=42):
     """
     Unisce puzzle_splits e games_splits, quindi suddivide in train/val/test
-    bilanciando per l'attributo 'mate' (di default 'mate_n').
-
-    Gestisce:
-      - Oggetti che sono tuple/liste (estrae il primo elemento)
-      - Attributi alternativi ('mate', 'mate_in', 'y')
-      - Tensori convertiti a scalare
+    bilanciando per mate_n (schema compresso: sempre un uint8 tensor
+    scalare data.mate_n, nessuna ambiguita' di formato da gestire come
+    nella versione precedente con tuple/liste/attributi alternativi).
     """
-    import torch
     from collections import defaultdict
-    import os
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # 1. Raccogli tutti i dati da entrambi i tipi di split
-    all_data = []
+    all_data: List[Data] = []
     for name in ("train", "val", "test"):
         all_data.extend(puzzle_splits.get(name, []))
         all_data.extend(games_splits.get(name, []))
 
-    # 2. Funzione per estrarre il grafo (se l'elemento è una tupla/lista)
-    def get_graph(item):
-        if isinstance(item, (tuple, list)) and len(item) > 0:
-            return item[0]          # prende il primo elemento (il Data)
-        return item
+    def get_mate_value(item: Data) -> int:
+        if not hasattr(item, "mate_n"):
+            raise ValueError(f"Oggetto senza attributo 'mate_n': {item}")
+        val = item.mate_n
+        if isinstance(val, torch.Tensor):
+            return int(val.item())
+        return int(val)
 
-    # 3. Funzione per ottenere il valore del mate
-    def get_mate_value(item):
-        if mate_extractor is not None:
-            return mate_extractor(item)
-
-        graph = get_graph(item)
-
-        # Prova vari nomi di attributo
-        for attr in [mate_attr, "mate_n", "mate", "mate_in", "y"]:
-            if hasattr(graph, attr):
-                val = getattr(graph, attr)
-                # Se è un tensore, convertilo a scalare intero
-                if isinstance(val, torch.Tensor):
-                    if val.numel() == 1:
-                        val = val.item()
-                    elif val.dim() == 1 and val.numel() > 1:
-                        # Se è un tensore 1D, prendiamo il primo valore? 
-                        # Di solito mate è scalare, ma se abbiamo per nodo, potrebbe servire una aggregazione.
-                        # Qui assumiamo che il valore sia lo stesso per tutti i nodi, quindi prendiamo il primo.
-                        val = val[0].item()
-                    else:
-                        # Se tensore multidimensionale, non sappiamo come gestirlo: solleviamo eccezione
-                        raise ValueError(f"Tensore '{attr}' con forma {val.shape} non gestito.")
-                # Se il valore è intero, lo restituiamo
-                if isinstance(val, (int, float)):
-                    return int(val)
-                # Se è un tensore ma già convertito, lo abbiamo già trasformato
-                return val
-        raise ValueError(
-            f"Nessun attributo di mate trovato nell'oggetto {type(graph)}. "
-            f"Attributi disponibili: {[a for a in dir(graph) if not a.startswith('_')]}"
-        )
-
-    # 4. Raggruppa per mate
-    groups = defaultdict(list)
+    groups: Dict[int, List[Data]] = defaultdict(list)
     for item in all_data:
-        mate = get_mate_value(item)
-        if mate is None:
-            # Se nonostante tutto il mate è None, scartiamo l'elemento (o solleviamo eccezione)
-            # Qui scegliamo di sollevare per individuare il problema
-            raise ValueError(f"Impossibile estrarre mate per oggetto: {item}")
-        groups[mate].append(item)
+        groups[get_mate_value(item)].append(item)
 
-    # 5. Suddivisione stratificata per gruppi
     torch.manual_seed(seed)
-    train_ratio, val_ratio, test_ratio = ratios
+    train_ratio, val_ratio, _test_ratio = ratios
     train_list, val_list, test_list = [], [], []
 
-    for mate, items in groups.items():
+    for _mate, items in groups.items():
         n = len(items)
         n_train = int(train_ratio * n)
         n_val = int(val_ratio * n)
         n_test = n - n_train - n_val
-        # Correzione per arrotondamenti
         if n_test < 0:
             n_train = max(0, n_train)
             n_val = max(0, n_val)
@@ -105,7 +76,6 @@ def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
         val_list.extend(shuffled[n_train:n_train + n_val])
         test_list.extend(shuffled[n_train + n_val:])
 
-    # 6. Mescolanza globale degli split
     def shuffle_list(lst):
         if not lst:
             return lst
@@ -116,7 +86,6 @@ def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
     val_list = shuffle_list(val_list)
     test_list = shuffle_list(test_list)
 
-    # 7. Salvataggio
     for name, data in zip(("train", "val", "test"), (train_list, val_list, test_list)):
         out_path = os.path.join(out_dir, f"merged_{name}.pt")
         torch.save(data, out_path)
@@ -124,7 +93,17 @@ def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
 
     return {"train": train_list, "val": val_list, "test": test_list}
 
+
 class PuzzleGraphDataset(InMemoryDataset):
+    """Dataset puzzle in schema compresso. Ogni riga del CSV con un tema
+    mateInN nel range richiesto genera una sequenza di sample (uno per ogni
+    ply del lato che deve dare matto), ciascuno compresso secondo lo
+    schema di GraphBuilder.board_to_pyg_data.
+
+    Il .jsonl di debug (fen, best_move_uci, puzzle_id, mate_n, rating,
+    ply_idx) viene scritto accanto al processed_paths[0], stesso ordine dei
+    sample nel .pt, per audit senza portare stringhe nel tensor dataset."""
+
     def __init__(self, csv_path, root, split="train", mate_range=(1, 5),
                  max_puzzles=None, seed=42, avg_time_by_rating=None, chunksize=50_000,
                  split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1)):
@@ -136,9 +115,6 @@ class PuzzleGraphDataset(InMemoryDataset):
         self.avg_time_by_rating = avg_time_by_rating or {}
         self.chunksize = chunksize
 
-        # Validazione: stessa logica usata altrove nella pipeline
-        # (vedi validate_config in MainDatasetCreator.py), per coerenza
-        # e per evitare split silenziosamente sbagliati.
         if len(split_ratios) != 3:
             raise ValueError("split_ratios deve contenere train, val e test.")
         if abs(sum(split_ratios) - 1.0) > 1e-6:
@@ -152,13 +128,17 @@ class PuzzleGraphDataset(InMemoryDataset):
     def processed_file_names(self):
         return [f"puzzle_{self.split}.pt"]
 
-    def _load_filtered_rows(self) -> list[dict]:
+    @property
+    def debug_jsonl_path(self) -> str:
+        return os.path.join(self.processed_dir, f"puzzle_{self.split}.jsonl")
+
+    def _load_filtered_rows(self) -> List[dict]:
         lo, hi = self.mate_range
         theme_pattern = "|".join(f"mateIn{n}" for n in range(lo, hi + 1))
         rows = []
         reader = pd.read_csv(self.csv_path, chunksize=self.chunksize)
-        pbar = tqdm(desc=f"Lettura CSV puzzle [pool completo]", unit=" righe valide")
-        
+        pbar = tqdm(desc="Lettura CSV puzzle [pool completo]", unit=" righe valide")
+
         for chunk in reader:
             mask = chunk["Themes"].str.contains(theme_pattern, na=False)
             filtered = chunk[mask]
@@ -171,14 +151,11 @@ class PuzzleGraphDataset(InMemoryDataset):
         pbar.close()
         return rows
 
-    def _rows_for_split(self, rows: list[dict]) -> list[dict]:
+    def _rows_for_split(self, rows: List[dict]) -> List[dict]:
         rows_sorted = sorted(rows, key=lambda r: r["PuzzleId"])
         random.Random(self.seed).shuffle(rows_sorted)
         n = len(rows_sorted)
 
-        # Usa split_ratios configurabile invece dei valori 0.8/0.9
-        # precedentemente hardcoded, per coerenza con split_cfg
-        # applicato al resto della pipeline (games_pipeline, merge).
         train_ratio, val_ratio, _ = self.split_ratios
         i_train = int(n * train_ratio)
         i_val = int(n * (train_ratio + val_ratio))
@@ -193,15 +170,18 @@ class PuzzleGraphDataset(InMemoryDataset):
         all_rows = self._load_filtered_rows()
         split_rows = self._rows_for_split(all_rows)
 
-        data_list = []
+        data_list: List[Data] = []
+        debug_records: List[Dict[str, Any]] = []
+
         for row in tqdm(split_rows, desc=f"Costruzione grafi puzzle [{self.split}]"):
             uci_moves = row["Moves"].split()
             if not uci_moves:
                 continue
-                
+
             board = chess.Board(row["FEN"])
             mate_n_iniziale = self._extract_mate_n(row["Themes"])
             clock = self._simulated_clock(row["Rating"])
+            puzzle_rating = float(row["Rating"]) if pd.notna(row.get("Rating")) else None
 
             first_move = chess.Move.from_uci(uci_moves[0])
             if first_move in board.legal_moves:
@@ -211,7 +191,7 @@ class PuzzleGraphDataset(InMemoryDataset):
 
             for ply_idx, uci in enumerate(uci_moves[1:], start=1):
                 move = chess.Move.from_uci(uci)
-                
+
                 if ply_idx % 2 == 0:
                     if move in board.legal_moves:
                         board.push(move)
@@ -220,28 +200,44 @@ class PuzzleGraphDataset(InMemoryDataset):
                 legal = list(board.legal_moves)
                 if move not in legal:
                     break
-                    
+
                 best_idx = legal.index(move)
                 current_mate_n = max(1, mate_n_iniziale - (ply_idx // 2))
-                
-                label = {
-                    "mate_n": current_mate_n,
-                    "best_move_idx": best_idx,
-                }
-                
+
+                label = {"mate_n": current_mate_n, "best_move_idx": best_idx}
+                clock_seconds = clock * (1 + 0.1 * ply_idx)
+
                 d = GraphBuilder.board_to_pyg_data(
-                    board, 
-                    clock_seconds=clock * (1 + 0.1 * ply_idx), 
-                    label=label
+                    board,
+                    clock_seconds=clock_seconds,
+                    label=label,
+                    legal_moves=legal,
+                    rating=puzzle_rating,
                 )
-                d.puzzle_id = row["PuzzleId"]
-                d.rating = float(row["Rating"])
                 data_list.append(d)
-                
+
+                debug_records.append({
+                    "problem_id": f"puzzle_{row['PuzzleId']}_{ply_idx}",
+                    "puzzle_id": row["PuzzleId"],
+                    "fen": board.fen(),
+                    "best_move_uci": move.uci(),
+                    "mate_n": current_mate_n,
+                    "ply_idx": ply_idx,
+                    "rating": puzzle_rating,
+                    "rating_deviation": row.get("RatingDeviation"),
+                    "popularity": row.get("Popularity"),
+                    "nb_plays": row.get("NbPlays"),
+                    "game_url": row.get("GameUrl"),
+                    "opening_tags": row.get("OpeningTags"),
+                    "clock_seconds": float(clock_seconds),
+                    "source": "puzzle",
+                })
+
                 board.push(move)
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+        GraphBuilder.write_debug_jsonl(debug_records, self.debug_jsonl_path)
 
     @staticmethod
     def _extract_mate_n(themes: str) -> int:
@@ -250,7 +246,7 @@ class PuzzleGraphDataset(InMemoryDataset):
                 return int(t.replace("mateIn", ""))
         return 0
 
-    def _simulated_clock(self, rating: int) -> float:
+    def _simulated_clock(self, rating: float) -> float:
         if self.avg_time_by_rating:
             bucket = round(rating / 100) * 100
             return self.avg_time_by_rating.get(bucket, 15.0)

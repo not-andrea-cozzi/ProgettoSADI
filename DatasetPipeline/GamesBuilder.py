@@ -8,10 +8,20 @@ reali, con clock reale quando disponibile), sorgente multipla:
     - FICS:     PGN grezzo compresso (.pgn.bz2)          -> tag "fics"
     - Club:     CSV con colonna pgn (es. chess.com dump) -> tag "club"
 
+SCHEMA COMPRESSO (vedi DatasetCreator/GraphBuilder.py): ogni sample salvato
+nel .pt contiene SOLO i campi utili al modello (board_packed, global_flags,
+clock_norm, edge_index/edge_attr uint8, mate_n, best_move_idx, value_target,
+rating), tutti in tipi minimi (uint8/float16). Le stringhe (fen,
+best_move_uci, problem_id, clock_source, source, game_id) NON entrano piu'
+nel tensor dataset: vengono scritte a parte in un .jsonl via
+GraphBuilder.write_debug_jsonl, nello stesso ordine dei sample salvati, cosi'
+si puo' sempre risalire da un sample del dataset .pt al suo FEN/mossa/game_id
+originali per debug o audit senza appesantire il file usato in training.
+
 NOTA IMPORTANTE (fix ancdata / hang su multiprocessing.Pool):
-Il worker NON ritorna piu' oggetti torch_geometric.data.Data (che
-contengono tensori) attraverso il Pool. I tensori PyTorch condivisi tra
-processi tramite file descriptor (torch.multiprocessing sharing strategy
+Il worker NON ritorna oggetti torch_geometric.data.Data (che contengono
+tensori) attraverso il Pool. I tensori PyTorch condivisi tra processi
+tramite file descriptor (torch.multiprocessing sharing strategy
 "file_system") possono rompersi con errori tipo:
 
     RuntimeError: received 0 items of ancdata
@@ -22,56 +32,6 @@ serializza ogni Data in un dict di tipi Python nativi (liste, int, float,
 str) via _data_to_plain_dict(), e run() lo ricostruisce in Data nel
 processo principale via _plain_dict_to_data(). Nessun tensore attraversa
 mai la pipe del Pool.
-
-Sostituisce sia ChessAnalysisPipeline (solo Lichess, mate 1-5, Pool+watchdog)
-sia ClubGamesTimedBuilder (multi-sorgente ma pensato per l'held-out) con
-un'unica classe pensata per il TRAIN:
-
-    - mate_range fisso a (1, 10): a differenza del vecchio games_pipeline
-      (mate 1-5), qui copriamo l'intero range usato anche dall'held-out
-      esterno, cosi' il train non e' piu' cieco su n=6..10.
-    - Filtri economici identici a ChessAnalysisPipeline (materiale minimo,
-      partite decisive, no time-forfeit, cap pezzi, ply_sample_step) per
-      scartare il piu' possibile PRIMA di chiamare Stockfish.
-    - Clock REALE per-mossa (%clk Lichess/FICS-clk, %emt FICS-Elapsed-Move-
-      Time) invece dello 0.0 costante di ExternalHoldoutBuilder: e' la causa
-      identificata del gap timed/untimed su held-out reale.
-    - Pool multiprocessing + watchdog Stockfish, stesso pattern robusto di
-      ChessAnalysisPipeline (chiusura pulita, timeout su pool.join()).
-    - Split train/val/test deterministico per PARTITA (non per posizione),
-      cosi' come ChessAnalysisPipeline, per evitare data leakage.
-
-Uso tipico (vedi anche GamesBuilderMain.py):
-
-    builder = GamesBuilder(
-        sources=[
-            SourceSpec(kind="lichess", path="RawData/lichess_..._2020-01.pgn.zst"),
-            SourceSpec(kind="fics", path="RawData/ficsgamesdb_..._movetimes_...pgn.bz2"),
-            SourceSpec(kind="club", path="RawData/club_games_data.csv.zip", pgn_col="pgn"),
-        ],
-        stockfish_path="/usr/games/stockfish",
-        output_pt="Dataset/Games/games.pt",
-        mate_range=(1, 10),
-    )
-    split_data, paths = builder.run()
-
---------------------------------------------------------------------------
-FIX (Ctrl-C non funzionante / pool.join() bloccato indefinitamente):
-
-    La vecchia cleanup_after_failure() disabilitava SIGINT e poi chiamava
-    pool.join() SENZA alcun timeout. Se un worker restava appeso (tipico:
-    Stockfish bloccato in lettura sulla pipe dentro _close_engine()), quel
-    join() non ritornava mai — e i Ctrl-C successivi non facevano nulla
-    perche' SIGINT era gia' disabilitato nel processo principale.
-
-    cleanup_after_failure() ora applica lo stesso pattern robusto gia'
-    usato nel finally esterno e in ChessAnalysisPipeline: join con
-    deadline (self.pool_join_timeout, default 15s), e se dopo il timeout
-    restano worker vivi, li uccide con SIGKILL (via psutil), sia il
-    processo worker che gli eventuali Stockfish figli orfani — non solo
-    SIGTERM/pool.terminate(), che a quel punto e' gia' stato provato e
-    non ha funzionato.
---------------------------------------------------------------------------
 """
 from __future__ import annotations
 
@@ -87,9 +47,8 @@ import time
 import zipfile
 import multiprocessing as mp
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Generator, List, Optional, Tuple
-
 import chess
 import chess.engine
 import chess.pgn
@@ -99,16 +58,11 @@ from torch_geometric.data import Data
 from tqdm import tqdm
 import zstandard as zstd  # pragma: no cover - opzionale se non si usa Lichess
 
-from DatasetCreator.GraphBuilder import GraphBuilder
+from DatasetPipeline.GraphBuilder import GraphBuilder
 
 # ============================================================================
 # STATO GLOBALE PER WORKER (Stockfish + Syzygy + watchdog)
 # ============================================================================
-# Stesso pattern di ChessAnalysisPipeline/ClubGamesTimedBuilder: ogni worker
-# possiede la propria istanza Stockfish, chiusa esplicitamente sia via atexit
-# (crash/uscita naturale) sia via handler SIGTERM (pool.terminate()), perche'
-# senza chiusura esplicita l'engine resta appeso in lettura sulla pipe e il
-# processo worker non termina mai, bloccando pool.join() indefinitamente.
 
 _engine: Optional[chess.engine.SimpleEngine] = None
 _engine_pid: Optional[int] = None
@@ -199,8 +153,9 @@ class SourceSpec:
     """Descrive una sorgente di partite da processare.
 
     kind: "lichess" (.pgn.zst), "fics" (.pgn.bz2 o .pgn), "club" (CSV/CSV.zip
-          con colonna pgn_col). Il tag finito su ogni Data.source serve per
-          poter analizzare/pesare le fonti separatamente a valle.
+          con colonna pgn_col). Il tag finito su ogni record debug .jsonl
+          serve per poter analizzare/pesare le fonti separatamente a valle
+          (non e' piu' salvato nel tensor dataset, vedi write_debug_jsonl).
     path: percorso del file sorgente.
     pgn_col: solo per kind="club", nome colonna contenente il PGN.
     skip_games: partite iniziali da saltare (utile per evitare overlap con
@@ -258,7 +213,7 @@ class GamesBuilder:
         streaming per-partita, source-agnostic
           |
           v
-        filtri economici partita (identici a ChessAnalysisPipeline)
+        filtri economici partita
           |
           v
         filtri economici posizione (materiale, pezzi, mosse legali)
@@ -273,14 +228,13 @@ class GamesBuilder:
         selezione mate in mate_range (default 1-10)
           |
           v
-        GraphBuilder (clock reale per-mossa)
+        GraphBuilder (schema compresso: board_packed/global_flags/uint8/float16)
           |
           v
         split train/val/test per PARTITA (no leakage)
-
-    Le sorgenti sono concatenate in un unico stream (game_id globale
-    progressivo) cosi' un solo Pool di worker Stockfish serve tutte, invece
-    di aprire/chiudere un pool per sorgente.
+          |
+          v
+        .pt (tensori compressi) + .jsonl (fen/best_move_uci/problem_id per debug)
     """
 
     _PIECE_VALUES: Dict[int, int] = {
@@ -324,7 +278,6 @@ class GamesBuilder:
         syzygy_path: Optional[str] = None,
         checkpoint_every: int = 5000,
         config_error_cls: type = ValueError,
-        # --- NUOVI FILTRI ECONOMICI AGGRESSIVI (pre-Stockfish) ---
         min_rating: Optional[int] = 1200,
         max_rating: Optional[int] = None,
         min_material_diff_for_mate_attempt: int = 3,
@@ -358,55 +311,18 @@ class GamesBuilder:
         self.only_decisive_games = only_decisive_games
         self.skip_time_forfeit = skip_time_forfeit
         self.min_material_for_mate_attempt = min_material_for_mate_attempt
-        # NUOVO: scarta posizioni il cui clock_seconds finale e' 0.0 "non
-        # reale" (ne' %clk ne' %emt ne' rating_bucket disponibili, fallback
-        # totale). Causa identificata del rumore nel canale timed: il 18%
-        # di clock=0 nel vecchio games.pt distorceva clock_norm come "tempo
-        # istantaneo" anziche' "informazione assente". Se True, quelle
-        # posizioni vengono scartate anziche' salvate con clock fittizio.
         self.drop_zero_clock = drop_zero_clock
         self.pool_join_timeout = pool_join_timeout
         self.syzygy_path = syzygy_path
         self.checkpoint_every = checkpoint_every
         self._config_error_cls = config_error_cls
 
-        # --- NUOVI FILTRI ECONOMICI AGGRESSIVI ---
-        # 1) Rating: partite troppo deboli producono spesso "mate" per
-        #    errori grossolani reciproci, non tattica pulita utile al
-        #    training; partite troppo forti sono rare e non aggiungono
-        #    molto. Confrontato contro il rating del MOVER (chi deve dare
-        #    matto), non entrambi i giocatori, per non scartare partite
-        #    dove solo un lato e' debole (es. simul, handicap).
         self.min_rating = min_rating
         self.max_rating = max_rating
-        # 2) Materiale DIFFERENZIALE (mover - avversario): oltre al minimo
-        #    assoluto (min_material_for_mate_attempt), un mate forzato
-        #    rapido richiede tipicamente un vantaggio netto. Se il mover ha
-        #    tanto materiale ma l'avversario ne ha altrettanto (posizione
-        #    equilibrata), un mate 1-10 forzato e' comunque improbabile.
         self.min_material_diff_for_mate_attempt = min_material_diff_for_mate_attempt
-        # 3) Presenza di almeno un pezzo pesante (donna o torre) del mover:
-        #    senza donna/torre un mate forzato rapido e' raro fuori dai
-        #    finali di pedoni promuoventi, che questa pipeline non modella
-        #    esplicitamente. Riduce drasticamente le chiamate Stockfish
-        #    negli scacchieri gia' molto spogli.
         self.require_heavy_piece = require_heavy_piece
-        # 4) Mosse forzate (una sola mossa legale): spesso non tattica
-        #    interessante (es. uscita da uno scacco senza scelta). Escluse
-        #    di default solo se esplicitamente richiesto, perche' alcune
-        #    "mosse uniche" SONO effettivamente il primo mattone di un mate
-        #    netto e scartarle a priori rischia di perdere segnale utile.
         self.skip_forced_moves = skip_forced_moves
-        # 5) Deduplica posizioni ripetute nella stessa partita (hash board):
-        #    utile su bullet/blitz con transposizioni frequenti. Una volta
-        #    scartata una posizione (board_hash) in QUESTA partita, le
-        #    successive occorrenze identiche vengono saltate senza richiamare
-        #    nessun filtro/Stockfish.
         self.dedupe_positions = dedupe_positions
-        # 6) Euristica rapida "finale banalmente patto": K+minore vs K nudo
-        #    (o equivalenti) e' quasi sempre draw teorico, scartabile senza
-        #    Stockfish/Syzygy. Complementare a Syzygy (che copre solo <=7
-        #    pezzi): questo check e' O(1) e non richiede file tablebase.
         self.skip_trivial_endgame = skip_trivial_endgame
 
         cpu_count = os.cpu_count() or 2
@@ -424,6 +340,10 @@ class GamesBuilder:
             raise self._config_error_cls("mate_range deve iniziare da almeno 1.")
         if hi < lo:
             raise self._config_error_cls("mate_range non valido.")
+        if hi > 255:
+            raise self._config_error_cls(
+                "mate_range superiore a 255 non supportato dallo schema compresso (mate_n e' uint8)."
+            )
         if not self.sources:
             raise self._config_error_cls("Serve almeno una SourceSpec in 'sources'.")
         if self.workers < 1:
@@ -457,62 +377,53 @@ class GamesBuilder:
             raise self._config_error_cls(f"syzygy_path non e' una cartella valida: {self.syzygy_path}.")
 
     # ================================================================
-    # SERIALIZZAZIONE Data <-> dict di tipi nativi
+    # SERIALIZZAZIONE Data <-> dict di tipi nativi (schema compresso)
     # ================================================================
-    # Il worker gira in un processo figlio e produce oggetti PyG Data
-    # (che contengono tensori). Passare tensori attraverso la pipe di
-    # multiprocessing.Pool puo' fallire con "RuntimeError: received 0
-    # items of ancdata" a seconda della sharing strategy attiva di
-    # torch.multiprocessing, bloccando l'intero Pool. Per evitarlo,
-    # _worker() converte ogni Data in un dict di tipi Python nativi
-    # (liste, int, float, str) PRIMA di ritornarlo, e run() lo
-    # riconverte in Data nel processo principale subito dopo la
-    # ricezione. Nessun tensore attraversa mai la pipe del Pool.
+    # Il worker gira in un processo figlio e produce oggetti PyG Data con
+    # tensori. Passare tensori attraverso la pipe di multiprocessing.Pool
+    # puo' fallire con "RuntimeError: received 0 items of ancdata" a
+    # seconda della sharing strategy attiva di torch.multiprocessing,
+    # bloccando l'intero Pool. Per evitarlo, _worker() converte ogni Data
+    # in un dict di tipi Python nativi PRIMA di ritornarlo, e run() lo
+    # riconverte in Data nel processo principale subito dopo la ricezione.
+    #
+    # I metadati stringa (fen, best_move_uci, problem_id, clock_source,
+    # source, game_id) viaggiano SEPARATAMENTE in un dict "debug", cosi' il
+    # dict "tensor" resta minimo (solo cio' che finira' nel .pt compresso).
 
     @staticmethod
-    def _data_to_plain_dict(data) -> Dict[str, Any]:
-        """Converte un torch_geometric.data.Data in tipi Python nativi
-        (niente tensori), sicuro da passare attraverso multiprocessing.Pool
-        senza dipendere dalla sharing strategy dei tensori PyTorch."""
+    def _data_to_plain_dict(data: Data) -> Dict[str, Any]:
+        """Converte gli attributi TENSORE del sample compresso in tipi
+        Python nativi (liste/int/float), sicuro da passare attraverso
+        multiprocessing.Pool."""
         return {
-            "x": data.x.tolist(),
-            "edge_index": data.edge_index.tolist(),
+            "edge_index_u8": data.edge_index_u8.tolist(),
             "edge_attr": data.edge_attr.tolist(),
-            "game_id": int(data.game_id),
-            "ply": int(data.ply),
-            "clock_seconds": float(data.clock_seconds),
-            "clock_is_real": bool(data.clock_is_real),
-            "clock_source": str(data.clock_source),
-            "mate_n": int(data.mate_n),
-            "best_move_idx": int(data.best_move_idx),
-            "best_move_uci": str(data.best_move_uci),
-            "fen": str(data.fen),
-            "source": str(data.source),
-            "problem_id": str(data.problem_id),
-            "rating": float(data.rating),
+            "board_packed": data.board_packed.tolist(),
+            "global_flags": int(data.global_flags.item()),
+            "clock_norm": float(data.clock_norm.item()),
+            "mate_n": int(data.mate_n.item()),
+            "best_move_idx": int(data.best_move_idx.item()),
+            "value_target": float(data.value_target.item()),
+            "rating": float(data.rating.item()),
         }
 
     @staticmethod
     def _plain_dict_to_data(d: Dict[str, Any]) -> Data:
-        """Ricostruisce un torch_geometric.data.Data da un dict di tipi
-        nativi prodotto da _data_to_plain_dict, nel processo principale."""
-        data = Data(
-            x=torch.tensor(d["x"], dtype=torch.float),
-            edge_index=torch.tensor(d["edge_index"], dtype=torch.long),
-            edge_attr=torch.tensor(d["edge_attr"], dtype=torch.long),
-        )
-        data.game_id = d["game_id"]
-        data.ply = d["ply"]
-        data.clock_seconds = d["clock_seconds"]
-        data.clock_is_real = d["clock_is_real"]
-        data.clock_source = d["clock_source"]
-        data.mate_n = d["mate_n"]
-        data.best_move_idx = d["best_move_idx"]
-        data.best_move_uci = d["best_move_uci"]
-        data.fen = d["fen"]
-        data.source = d["source"]
-        data.problem_id = d["problem_id"]
-        data.rating = d["rating"]
+        """Ricostruisce un torch_geometric.data.Data compresso da un dict
+        di tipi nativi prodotto da _data_to_plain_dict, nel processo
+        principale."""
+        edge_index_u8 = torch.tensor(d["edge_index_u8"], dtype=torch.uint8)
+        data = Data(edge_index=edge_index_u8.long())
+        data.edge_index_u8 = edge_index_u8
+        data.edge_attr = torch.tensor(d["edge_attr"], dtype=torch.uint8)
+        data.board_packed = torch.tensor(d["board_packed"], dtype=torch.uint8)
+        data.global_flags = torch.tensor([d["global_flags"]], dtype=torch.uint8)
+        data.clock_norm = torch.tensor([d["clock_norm"]], dtype=torch.float16)
+        data.mate_n = torch.tensor([d["mate_n"]], dtype=torch.uint8)
+        data.best_move_idx = torch.tensor([d["best_move_idx"]], dtype=torch.uint8)
+        data.value_target = torch.tensor([d["value_target"]], dtype=torch.float16)
+        data.rating = torch.tensor([d["rating"]], dtype=torch.float16)
         return data
 
     # ================================================================
@@ -523,9 +434,6 @@ class GamesBuilder:
     def _init_worker(stockfish_path: str, threads: int, hash_mb: int, syzygy_path: Optional[str]) -> None:
         global _engine, _engine_pid, _tablebase, _watchdog_thread
 
-        # Solo il processo principale reagisce a Ctrl-C (vedi motivazione
-        # dettagliata in ClubGamesTimedBuilder: SIGINT inoltrato al process
-        # group puo' rompere la pipe interna della Pool a meta' operazione).
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, _worker_sigterm_handler)
 
@@ -612,7 +520,7 @@ class GamesBuilder:
         return self.avg_time_by_rating[closest]
 
     # ================================================================
-    # ECONOMIC FILTERS (identici a ChessAnalysisPipeline)
+    # ECONOMIC FILTERS
     # ================================================================
 
     def _game_is_eligible(self, game: "chess.pgn.Game") -> bool:
@@ -633,12 +541,6 @@ class GamesBuilder:
             if "Time forfeit" in termination:
                 return False
 
-        # NUOVO: filtro rating economico (solo header, nessun costo extra).
-        # Scarta l'intera partita se ENTRAMBI i giocatori sono fuori range:
-        # basta che uno dei due sia nel range per tenere la partita, dato
-        # che il filtro fine per-mossa (rating del mover) avviene comunque
-        # dopo in _worker. Qui l'obiettivo e' solo evitare di aprire/
-        # analizzare partite chiaramente fuori target (es. entrambi <800).
         if self.min_rating is not None or self.max_rating is not None:
             white_elo = self._parse_rating(game.headers.get("WhiteElo", ""))
             black_elo = self._parse_rating(game.headers.get("BlackElo", ""))
@@ -665,10 +567,13 @@ class GamesBuilder:
             return None
         if self.skip_if_in_check and board.is_check():
             return None
+        if len(legal_moves) > 255:
+            # best_move_idx e' uint8 (max 255): scarto difensivo, caso
+            # patologico mai osservato in pratica (max teorico 218).
+            return None
         return legal_moves
 
     def _material_by_color(self, board: "chess.Board") -> Tuple[int, int]:
-        """Ritorna (materiale_bianco, materiale_nero), re escluso."""
         white_mat = 0
         black_mat = 0
         for p in board.piece_map().values():
@@ -687,26 +592,11 @@ class GamesBuilder:
 
         if mover_mat < self.min_material_for_mate_attempt:
             return False
-
-        # NUOVO: materiale differenziale. Un mate forzato rapido richiede
-        # tipicamente un vantaggio netto, non solo un minimo assoluto: due
-        # lati entrambi con una torre a testa (posizione equilibrata) quasi
-        # mai produce un mate 1-10 forzato, anche se il minimo assoluto e'
-        # soddisfatto da entrambi.
         if (mover_mat - opp_mat) < self.min_material_diff_for_mate_attempt:
             return False
-
         return True
 
     def _mover_has_heavy_piece(self, board: "chess.Board") -> bool:
-        """True se il mover possiede almeno una donna o una torre.
-
-        Filtro economico O(1): un mate forzato rapido fuori dai finali di
-        pedoni promuoventi (non modellati esplicitamente da questa pipeline)
-        richiede quasi sempre un pezzo pesante. Scartare qui evita di
-        analizzare con Stockfish scacchiere gia' troppo spoglie per produrre
-        mate 1-10 realistici.
-        """
         mover = board.turn
         for piece_type in (chess.QUEEN, chess.ROOK):
             if board.pieces(piece_type, mover):
@@ -714,12 +604,6 @@ class GamesBuilder:
         return False
 
     def _is_trivially_drawn_endgame(self, board: "chess.Board") -> bool:
-        """Euristica O(1), complementare a Syzygy (che copre solo <=7 pezzi):
-        King + al massimo un pezzo minore (cavallo o alfiere) per lato,
-        senza pedoni ne' pezzi pesanti, e' quasi sempre patta teorica
-        (K+B/N vs K nudo o K+minore vs K+minore). Non copre tutti i casi
-        (es. certi K+2N vs K+P), ma intercetta la maggioranza economica dei
-        finali banalmente patti senza aprire Stockfish."""
         piece_map = board.piece_map()
         has_heavy_or_pawn = any(
             p.piece_type in (chess.QUEEN, chess.ROOK, chess.PAWN)
@@ -731,9 +615,6 @@ class GamesBuilder:
         white_minors = sum(1 for p in piece_map.values() if p.color == chess.WHITE and p.piece_type in (chess.BISHOP, chess.KNIGHT))
         black_minors = sum(1 for p in piece_map.values() if p.color == chess.BLACK and p.piece_type in (chess.BISHOP, chess.KNIGHT))
 
-        # K+1minore vs K nudo, o K+1minore vs K+1minore: draw teorico quasi
-        # certo (uniche eccezioni patologiche non coperte qui, accettabile
-        # per un filtro pre-Stockfish che punta a economicita').
         return white_minors <= 1 and black_minors <= 1
 
     def _syzygy_says_no_mate(self, board: "chess.Board") -> bool:
@@ -764,7 +645,7 @@ class GamesBuilder:
                 _watchdog_arm(self.analysis_time)
             else:
                 limit = chess.engine.Limit(depth=self.search_depth, mate=self.mate_range[1])
-                _watchdog_arm(5.0)  # stima difensiva per limite a profondita'
+                _watchdog_arm(5.0)
             return _engine.analyse(board, limit, multipv=self.multipv)
         except (
             chess.engine.EngineTerminatedError,
@@ -783,32 +664,33 @@ class GamesBuilder:
     # WORKER: analizza una singola partita, source-agnostic
     # ================================================================
 
-    def _worker(self, args: Tuple[int, str, str]) -> Tuple[int, List[Dict[str, Any]]]:
+    def _worker(self, args: Tuple[int, str, str]) -> Tuple[int, List[Dict[str, Any]], List[Dict[str, Any]]]:
         """args = (game_id, pgn_text, source_tag).
 
-        Ritorna (game_id, lista_di_dict) — MAI oggetti Data con tensori,
-        vedi nota in cima al file sulla serializzazione via
-        _data_to_plain_dict per evitare l'errore ancdata sul Pool.
+        Ritorna (game_id, lista_dict_tensori, lista_dict_debug) — MAI
+        oggetti Data con tensori (vedi nota sulla serializzazione in cima
+        al file). I due elenchi sono paralleli: tensor_list[i] e
+        debug_list[i] descrivono lo stesso sample.
         """
         global _engine
         game_id, pgn_text, source_tag = args
 
         if _engine is None:
-            return game_id, []
+            return game_id, [], []
 
         try:
             game = chess.pgn.read_game(io.StringIO(pgn_text))
         except Exception:
-            return game_id, []
-            
+            return game_id, [], []
+
         if game is None:
-            return game_id, []
+            return game_id, [], []
 
         if game.headers.get("Variant", "Standard").lower() not in ("standard", "normal"):
-            return game_id, []
+            return game_id, [], []
 
         if not self._game_is_eligible(game):
-            return game_id, []
+            return game_id, [], []
 
         time_control = game.headers.get("TimeControl", "")
         base_time, increment = self._parse_time_control(time_control)
@@ -822,15 +704,14 @@ class GamesBuilder:
             chess.BLACK: base_time if base_time > 0 else None,
         }
 
-        data_list: List[Dict[str, Any]] = []
+        tensor_list: List[Dict[str, Any]] = []
+        debug_list: List[Dict[str, Any]] = []
         node = game
         mate_lo, mate_hi = self.mate_range
         positions_analysed = 0
 
-        # Cache di deduplica per QUESTA partita
         seen_positions: set = set()
 
-        # Blocco try-except generale per isolare il parsing della scacchiera
         try:
             while node.variations:
                 next_node = node.variation(0)
@@ -839,7 +720,6 @@ class GamesBuilder:
                 mover_color = board.turn
 
                 if self.dedupe_positions:
-                    # Usiamo solo i primi 4 campi FEN per la vera deduplica
                     position_key = " ".join(board.fen().split(" ")[:4])
                     if position_key in seen_positions:
                         node = next_node
@@ -956,38 +836,43 @@ class GamesBuilder:
                     node = next_node
                     continue
 
+                rating_val = mover_rating[mover_color]
+
                 label = {"mate_n": int(mate_n), "best_move_idx": int(best_move_idx)}
                 try:
                     data = GraphBuilder.board_to_pyg_data(
-                        board, clock_seconds=clock_seconds, label=label, legal_moves=legal_moves
+                        board,
+                        clock_seconds=clock_seconds,
+                        label=label,
+                        legal_moves=legal_moves,
+                        rating=float(rating_val) if rating_val is not None else None,
                     )
                 except Exception:
                     node = next_node
                     continue
 
-                data.game_id = int(game_id)
-                data.ply = int(node.ply())
-                data.clock_seconds = float(clock_seconds)
-                data.clock_is_real = bool(duration_is_real)
-                data.clock_source = clock_source or "unknown"
-                data.mate_n = int(mate_n)
-                data.best_move_idx = int(best_move_idx)
-                data.best_move_uci = best_move.uci()
-                data.fen = board.fen()
-                data.source = source_tag
-                data.problem_id = f"{source_tag}_{game_id}_{node.ply()}"
-                rating_val = mover_rating[mover_color]
-                data.rating = float(rating_val) if rating_val is not None else float("nan")
+                problem_id = f"{source_tag}_{game_id}_{node.ply()}"
 
-                data_list.append(self._data_to_plain_dict(data))
+                tensor_list.append(self._data_to_plain_dict(data))
+                debug_list.append({
+                    "problem_id": problem_id,
+                    "fen": board.fen(),
+                    "best_move_uci": best_move.uci(),
+                    "mate_n": int(mate_n),
+                    "game_id": int(game_id),
+                    "ply": int(node.ply()),
+                    "source": source_tag,
+                    "clock_source": clock_source or "unknown",
+                    "clock_seconds": float(clock_seconds),
+                    "clock_is_real": bool(duration_is_real),
+                    "rating": rating_val,
+                })
                 node = next_node
 
         except Exception:
-            # Cattura silenziosamente errori in python-chess (es. nodi corrotti)
-            # e procede ritornando i dati eventualmente già elaborati.
             pass
 
-        return game_id, data_list
+        return game_id, tensor_list, debug_list
 
     # ================================================================
     # STREAMING SORGENTI (source-agnostic, game_id globale progressivo)
@@ -1015,7 +900,6 @@ class GamesBuilder:
         raise self._config_error_cls(f"_open_pgn_text_stream non applicabile a kind={kind}")
 
     def _iter_pgn_texts(self, text_stream, skip_games: int, max_games: Optional[int]) -> Generator[Tuple[int, str], None, None]:
-        """Split streaming di un file PGN multi-partita per linee '[Event '."""
         local_id = 0
         yielded = 0
         current_game: List[str] = []
@@ -1061,8 +945,6 @@ class GamesBuilder:
             yield (int(local_id) + 1, pgn_text)
 
     def _iter_source(self, src: SourceSpec) -> Generator[Tuple[int, str], None, None]:
-        """Ritorna (local_id, pgn_text) per una sorgente, gia' rispettando
-        skip_games/max_games della SourceSpec."""
         if src.kind == "club":
             yield from self._iter_club_csv(src)
             return
@@ -1071,9 +953,6 @@ class GamesBuilder:
             yield from self._iter_pgn_texts(text_stream, src.skip_games, src.max_games)
 
     def _iter_all_tasks(self) -> Generator[Tuple[int, str, str], None, None]:
-        """Concatena tutte le sorgenti in un unico stream con game_id
-        globale progressivo (necessario per lo split deterministico e per
-        evitare collisioni di game_id fra sorgenti diverse)."""
         global_id = 0
         for src in self.sources:
             for _local_id, pgn_text in self._iter_source(src):
@@ -1081,8 +960,6 @@ class GamesBuilder:
                 yield (global_id, pgn_text, src.tag)
 
     def _count_tasks_estimate(self) -> Optional[int]:
-        """Stima il totale per la progress bar quando possibile (solo per
-        sorgenti 'club', dove il conteggio e' economico da un csv)."""
         total = 0
         any_unknown = False
         for src in self.sources:
@@ -1116,6 +993,7 @@ class GamesBuilder:
             os.makedirs(output_directory, exist_ok=True)
 
         split_data: Dict[str, List[Data]] = {"train": [], "val": [], "test": []}
+        split_debug: Dict[str, List[Dict[str, Any]]] = {"train": [], "val": [], "test": []}
         source_counts: Dict[str, int] = defaultdict(int)
         clock_source_counts: Dict[str, int] = defaultdict(int)
         mate_n_counts: Dict[int, int] = defaultdict(int)
@@ -1132,19 +1010,6 @@ class GamesBuilder:
         estimate = self._count_tasks_estimate()
 
         def cleanup_after_failure() -> None:
-            """Arresto forzato dei worker dopo Ctrl-C o eccezione.
-
-            FIX: la versione precedente disabilitava SIGINT e poi chiamava
-            pool.join() SENZA timeout — se un worker restava appeso (tipico:
-            Stockfish bloccato dentro _close_engine()), quel join() non
-            ritornava mai e i Ctrl-C successivi non facevano nulla, perche'
-            SIGINT era gia' disabilitato. Ora si applica una deadline
-            (self.pool_join_timeout, default 15s) e, se allo scadere
-            restano worker vivi, li si uccide con SIGKILL (via psutil),
-            sia il processo worker sia gli eventuali Stockfish figli
-            orfani — pool.terminate()/SIGTERM e' gia' stato tentato sopra
-            e non basta quando il worker e' davvero bloccato.
-            """
             old_sigint = signal.signal(signal.SIGINT, signal.SIG_IGN)
             try:
                 pool.terminate()
@@ -1190,29 +1055,28 @@ class GamesBuilder:
             results = pool.imap_unordered(self._worker, task_stream, chunksize=1)
 
             pbar = tqdm(results, desc="Analisi Partite (multi-sorgente)", total=estimate, dynamic_ncols=True)
-            for game_id, raw_data_list in pbar:
+            for game_id, raw_tensor_list, raw_debug_list in pbar:
                 processed_games += 1
 
-                if not raw_data_list:
+                if not raw_tensor_list:
                     continue
 
                 accepted_games += 1
                 split_name = self._assign_game_split(game_id)
 
-                # Ricostruzione Data (con tensori) SOLO qui, nel processo
-                # principale — mai attraverso la pipe del Pool.
-                data_list = [self._plain_dict_to_data(d) for d in raw_data_list]
+                data_list = [self._plain_dict_to_data(d) for d in raw_tensor_list]
 
                 split_data[split_name].extend(data_list)
+                split_debug[split_name].extend(raw_debug_list)
                 generated_positions += len(data_list)
 
-                for d in data_list:
-                    source_counts[d.source] += 1
-                    clock_source_counts[d.clock_source] += 1
-                    mate_n_counts[d.mate_n] += 1
+                for dbg in raw_debug_list:
+                    source_counts[dbg["source"]] += 1
+                    clock_source_counts[dbg["clock_source"]] += 1
+                    mate_n_counts[dbg["mate_n"]] += 1
 
                 if self.checkpoint_every and generated_positions % self.checkpoint_every < len(data_list):
-                    self._save_splits(split_data, source_counts, clock_source_counts, mate_n_counts, processed_games, accepted_games)
+                    self._save_splits(split_data, split_debug, source_counts, clock_source_counts, mate_n_counts, processed_games, accepted_games)
             pbar.close()
         except KeyboardInterrupt:
             print("\n[WARNING] Interruzione richiesta: arresto pulito dei worker in corso...")
@@ -1255,12 +1119,13 @@ class GamesBuilder:
 
             pool.join()
 
-        paths = self._save_splits(split_data, source_counts, clock_source_counts, mate_n_counts, processed_games, accepted_games)
+        paths = self._save_splits(split_data, split_debug, source_counts, clock_source_counts, mate_n_counts, processed_games, accepted_games)
         return split_data, paths
 
     def _save_splits(
         self,
         split_data: Dict[str, List[Data]],
+        split_debug: Dict[str, List[Dict[str, Any]]],
         source_counts: Dict[str, int],
         clock_source_counts: Dict[str, int],
         mate_n_counts: Dict[int, int],
@@ -1279,10 +1144,15 @@ class GamesBuilder:
             os.replace(tmp_path, output_path)
             paths[split_name] = output_path
 
+            # Debug .jsonl: stesso ordine, stesso base_path, estensione .jsonl.
+            # La riga N del jsonl descrive esattamente il sample N nel .pt.
+            debug_path = f"{base_path}_{split_name}.jsonl"
+            GraphBuilder.write_debug_jsonl(split_debug[split_name], debug_path)
+
         total_positions = sum(len(v) for v in split_data.values())
 
         print("\n" + "=" * 60)
-        print("GAMES BUILDER — CHECKPOINT/SUMMARY")
+        print("GAMES BUILDER — CHECKPOINT/SUMMARY (schema compresso)")
         print("=" * 60)
         print(f"Partite processate: {processed_games:,}")
         print(f"Partite con posizioni mate: {accepted_games:,}")

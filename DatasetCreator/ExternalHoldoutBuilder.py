@@ -15,7 +15,7 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from DatasetCreator.GraphBuilder import GraphBuilder
+from DatasetPipeline.GraphBuilder import GraphBuilder
 
 def _closest_bucket_time(rating: Optional[int], avg_time_by_rating: Dict[int, float], default: float) -> float:
     """Trova il tempo medio del bucket di rating piu' vicino. Fallback su 'default'

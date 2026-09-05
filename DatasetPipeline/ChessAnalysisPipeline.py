@@ -14,7 +14,7 @@ import torch
 from tqdm import tqdm
 import torch.multiprocessing as torch_mp
 
-from DatasetCreator.GraphBuilder import GraphBuilder
+from DatasetPipeline.GraphBuilder import GraphBuilder
 
 # Evita problemi di sharing dei tensori tra processi PyTorch.
 torch_mp.set_sharing_strategy("file_system")
