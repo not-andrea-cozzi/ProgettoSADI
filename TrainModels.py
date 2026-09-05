@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from timegnn.train.early_stopping import EarlyStopping
 from Component.PuzzleSequenceDataset import timed_collate_fn
-from Component.PuzzleShardedDataset import PuzzleShardedDataset
+from LMDBShards import PuzzleLMDBDataset
 from ModelUtils.PolicyGNN import legal_move_log_probs, policy_targets_to_global_index
 from ModelUtils.TimeChainGnn import TimedPolicyGNN
 from ModelUtils.MetricLogger import TrainingMetricsLogger
@@ -54,8 +54,9 @@ def benchmark_loader(loader: DataLoader, n_batches: int = 10) -> float:
     logger.info(f"Benchmark DataLoader ({n_batches} batch, num_workers={nw})...")
     if nw > 0 and sys.platform.startswith("win"):
         logger.info(
-            f"  -> Spawn di {nw} worker in corso. Con dataset shardato dovrebbe "
-            f"essere quasi istantaneo (nessuna copia di 2.2GB via pickle)."
+            f"  -> Spawn di {nw} worker in corso. Con LMDB multi-shard (mmap, "
+            f"handle per shard aperti lazy, no torch.load completo in RAM) "
+            f"dovrebbe essere quasi istantaneo."
         )
 
     t0 = time.time()
@@ -79,7 +80,7 @@ def benchmark_loader(loader: DataLoader, n_batches: int = 10) -> float:
     if per_batch_ms > 500:
         logger.warning(
             "[benchmark] >500ms/batch: il data loading è il collo di bottiglia. "
-            "Aumenta shard_cache_size o usa shard più grandi."
+            "Con LMDB verifica readahead/OS page cache o riduci num_workers."
         )
     return per_batch_ms
 
@@ -297,23 +298,30 @@ def main():
     if not os.path.exists(cfg.time_stats_json):
         logger.warning(f"{cfg.time_stats_json} non trovato: verrà usato il fallback lineare.")
 
-    # === Dataset shardato (on-demand) ===
-    logger.info("Caricamento dataset shardato...")
-    shards_train_dir = os.path.join(cfg.data_dir, "shards_train")
-    shards_val_dir = os.path.join(cfg.data_dir, "shards_val")
+    logger.info("Caricamento dataset LMDB...")
+    lmdb_train_dir = os.path.join(cfg.data_dir, "lmdb_train")
+    lmdb_val_dir = os.path.join(cfg.data_dir, "lmdb_val")
 
-    if not os.path.exists(os.path.join(shards_train_dir, "index.pt")):
-        raise FileNotFoundError(
-            f"Shard non trovati in {shards_train_dir}. "
-            "Lancia prima: python ShardDataset.py"
-        )
+    build_hint = (
+        "Lancia prima: python LMDBShards.py build --data-dir "
+        f"{cfg.data_dir} --splits train val "
+        "(opzionali --target-shard-gb / --map-size-gb)."
+    )
 
-    cache_size = int(getattr(cfg, "shard_cache_size", 3))
-    train_dataset = PuzzleShardedDataset(shards_train_dir, cache_size=cache_size)
-    val_dataset = PuzzleShardedDataset(shards_val_dir, cache_size=cache_size)
+    for split_dir, split_name in ((lmdb_train_dir, "train"), (lmdb_val_dir, "val")):
+        metadata_path = os.path.join(split_dir, "__metadata__.pkl")
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(
+                f"Metadata LMDB mancante per lo split '{split_name}': {metadata_path}. "
+                f"{build_hint}"
+            )
+
+    train_dataset = PuzzleLMDBDataset(lmdb_train_dir)
+    val_dataset = PuzzleLMDBDataset(lmdb_val_dir)
     logger.info(
-        f"Dataset shardato: {len(train_dataset)} train, {len(val_dataset)} val "
-        f"(cache={cache_size} shard/worker)"
+        f"Dataset LMDB: {len(train_dataset)} train ({train_dataset.num_shards} shard), "
+        f"{len(val_dataset)} val ({val_dataset.num_shards} shard) "
+        f"(random access mmap, nessuna cache shard in RAM)"
     )
 
     is_cuda = device.type == "cuda"
@@ -322,7 +330,8 @@ def main():
     if num_workers == 0:
         logger.warning(
             "num_workers=0: il data loading gira sul main thread. "
-            "Con dataset shardato puoi tranquillamente salire a 8+."
+            "Con LMDB puoi tranquillamente salire a 8+ (ogni worker riapre i propri "
+            "handle mmap per shard dopo il fork, vedi __getstate__ in LMDBShards.py)."
         )
 
     train_loader = build_loader(train_dataset, cfg, shuffle=True, is_cuda=is_cuda)

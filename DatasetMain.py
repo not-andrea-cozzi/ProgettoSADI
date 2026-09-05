@@ -2,14 +2,13 @@ import logging
 import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
-
-from timegnn.core import pipeline
 import torch
 import zstandard as zstd
 from tqdm import tqdm
 import yaml
 from Component.GamesBuilder import GamesBuilder, SourceSpec
 from DatasetCreator.PuzzleGraphDataset import PuzzleGraphDataset, merge_and_split
+from DatasetCreator.NormalizationEncoder import NormalizationEncoder
 from Component.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetCreator.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
 
@@ -151,6 +150,45 @@ def build_puzzle_pt(
     return splits
 
 
+def convert_puzzle_data(raw_data):
+    """
+    Converte i dati dei puzzle (tuple di (Data, ...)) in una lista di oggetti Data
+    con attributo mate_n scalare (intero).
+    """
+    converted = []
+    for item in raw_data:
+        # Estrai il Data (primo elemento se è una tupla/lista)
+        if isinstance(item, (tuple, list)):
+            data = item[0]
+        else:
+            data = item
+
+        # Calcola mate_n a partire da y o mate_n esistente
+        if hasattr(data, 'y'):
+            mate = int(data.y) + 1  # y è 0‑based per mate in 1..5
+        elif hasattr(data, 'mate_n'):
+            mate_val = data.mate_n
+            if isinstance(mate_val, torch.Tensor):
+                if mate_val.numel() == 1:
+                    mate = int(mate_val.item())
+                else:
+                    # Prendi il valore più frequente (moda)
+                    flat = mate_val.flatten()
+                    if flat.dtype in (torch.int, torch.long):
+                        mate = int(torch.mode(flat)[0].item())
+                    else:
+                        mate = int(flat[0].item())
+            else:
+                mate = int(mate_val)
+        else:
+            raise ValueError("Nessun attributo 'y' o 'mate_n' trovato nell'oggetto puzzle")
+
+        # Imposta l'attributo mate_n sull'oggetto Data
+        data.mate_n = mate
+        converted.append(data)
+    return converted
+
+
 def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
     if state.is_done(step_name) and is_ready_fn():
         logger.info(f"[SKIP] Step '{step_name}' gia' completato e verificato.")
@@ -172,8 +210,8 @@ def run_step(state: PipelineState, step_name: str, is_ready_fn, do_fn):
 
 
 VALID_STEPS = [
-    "time_stats", "games_pipeline",
-    "decompress_puzzles", "build_puzzles", "merge_and_split",
+    "time_stats", "games_pipeline", "decompress_puzzles",
+    "build_puzzles", "merge_and_normalize",
 ]
 
 CONFIG_PATH = "Yaml/main.yaml"
@@ -225,9 +263,15 @@ def main():
     mate_train_range = (games_cfg.get("mate_range_min", 1), games_cfg.get("mate_range_max", 5))
     split_ratios = (split_cfg.get("train_ratio", 0.8), split_cfg.get("val_ratio", 0.1), split_cfg.get("test_ratio", 0.1))
 
+    # Parametri di normalizzazione
+    normalize_enabled = pipe_cfg.get("normalize", True)
+    use_existing_games = pipe_cfg.get("use_existing_games", False)  # SE TRUE: carica games già generati
+
     ctx: Dict[str, Any] = {}
 
-    # Step 1: Statistiche tempo medio per rating
+    # ========================================================================
+    # STEP 1: Statistiche tempo medio per rating
+    # ========================================================================
     def _step_time_stats():
         require_file(raw_cfg["games_zst"], "File PGN compresso necessario per il calcolo delle durate mosse.")
         builder = TimeStatsBuilder(
@@ -244,12 +288,15 @@ def main():
     if file_ready(time_stats_path) and "avg_time_by_rating" not in ctx:
         ctx["avg_time_by_rating"] = load_avg_time_by_rating(time_stats_path)
 
-    # Step 2: Pipeline partite Lichess -> grafi posizioni matto 1-5
+    # ========================================================================
+    # STEP 2: Pipeline partite Lichess -> grafi posizioni matto 1-5
+    # ========================================================================
     games_paths = {
         "train": f"{os.path.splitext(games_output_base)[0]}_train.pt",
         "val": f"{os.path.splitext(games_output_base)[0]}_val.pt",
         "test": f"{os.path.splitext(games_output_base)[0]}_test.pt",
     }
+
     def _step_games_pipeline():
         require_executable(stockfish_path, "Eseguibile Stockfish mancante o non avviabile.")
 
@@ -353,15 +400,31 @@ def main():
         ctx["games_splits"] = splits
         ctx["games_paths"] = paths
 
-    if step is None or step == "games_pipeline":
-        run_step(
-            state,
-            "games_pipeline",
-            is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
-            do_fn=_step_games_pipeline,
-        )
+    # Se use_existing_games=True, carica i file già generati senza rigenerarli
+    if use_existing_games:
+        logger.info("⚠️ 'use_existing_games' attivo: carico i file games già generati.")
+        try:
+            ctx["games_splits"] = {
+                s: torch.load(games_paths[s], weights_only=False)
+                for s in ("train", "val", "test")
+            }
+            logger.info(f"✅ Caricati games: train={len(ctx['games_splits']['train'])}, "
+                        f"val={len(ctx['games_splits']['val'])}, test={len(ctx['games_splits']['test'])}")
+        except FileNotFoundError as e:
+            logger.error(f"File games non trovati: {e}. Disabilita use_existing_games o genera i file.")
+            raise
+    else:
+        if step is None or step == "games_pipeline":
+            run_step(
+                state,
+                "games_pipeline",
+                is_ready_fn=lambda: all(torch_pt_ready(p) for p in games_paths.values()),
+                do_fn=_step_games_pipeline,
+            )
 
-    # Step 3: Decompressione puzzle Lichess
+    # ========================================================================
+    # STEP 3: Decompressione puzzle Lichess
+    # ========================================================================
     def _step_decompress_puzzles():
         decompress_zst_csv(
             zst_path=raw_cfg["puzzles_zst"],
@@ -377,7 +440,9 @@ def main():
             do_fn=_step_decompress_puzzles,
         )
 
-    # Step 4: Costruzione grafi puzzle con tempo sintetico e split
+    # ========================================================================
+    # STEP 4: Costruzione grafi puzzle con tempo sintetico e split
+    # ========================================================================
     puzzle_processed_paths = {
         split: os.path.join(puzzles_dir, "processed", f"puzzle_{split}.pt")
         for split in ("train", "val", "test")
@@ -404,89 +469,126 @@ def main():
             do_fn=_step_build_puzzles,
         )
 
-    # Step 5: Merge puzzle + games per ogni split (80/10/10)
+    # ========================================================================
+    # STEP 5: MERGE + NORMALIZZAZIONE + OTTIMIZZAZIONE (NUOVO!)
+    # ========================================================================
     merged_paths = {
         split: os.path.join(merged_dir, f"merged_{split}.pt")
         for split in ("train", "val", "test")
     }
-    
-    def convert_puzzle_data(raw_data):
-        """
-        Converte i dati dei puzzle (tuple di (Data, ...)) in una lista di oggetti Data
-        con attributo mate_n scalare (intero).
-        """
-        converted = []
-        for item in raw_data:
-            # Estrai il Data (primo elemento se è una tupla/lista)
-            if isinstance(item, (tuple, list)):
-                data = item[0]
-            else:
-                data = item
 
-            # Calcola mate_n a partire da y o mate_n esistente
-            if hasattr(data, 'y'):
-                mate = int(data.y) + 1  # y è 0‑based per mate in 1..5
-            elif hasattr(data, 'mate_n'):
-                mate_val = data.mate_n
-                if isinstance(mate_val, torch.Tensor):
-                    if mate_val.numel() == 1:
-                        mate = int(mate_val.item())
-                    else:
-                        # Prendi il valore più frequente (moda)
-                        flat = mate_val.flatten()
-                        if flat.dtype in (torch.int, torch.long):
-                            mate = int(torch.mode(flat)[0].item())
-                        else:
-                            mate = int(flat[0].item())
-                else:
-                    mate = int(mate_val)
-            else:
-                raise ValueError("Nessun attributo 'y' o 'mate_n' trovato nell'oggetto puzzle")
-
-            # Imposta l'attributo mate_n sull'oggetto Data
-            data.mate_n = mate
-            converted.append(data)
-        return converted
-
-    def _step_merge():
+    def _step_merge_and_normalize():
+        # 1. Carica i puzzle (se non già in ctx)
         if "puzzle_splits" not in ctx:
-            # Carica i dati grezzi
             puzzle_raw = {
                 s: torch.load(puzzle_processed_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
-            # Convertili
             ctx["puzzle_splits"] = {
                 s: convert_puzzle_data(puzzle_raw[s])
                 for s in ("train", "val", "test")
             }
 
+        # 2. Carica i games (se non già in ctx)
         if "games_splits" not in ctx:
             ctx["games_splits"] = {
                 s: torch.load(games_paths[s], weights_only=False)
                 for s in ("train", "val", "test")
             }
 
-        # Ora chiama merge_and_split (versione originale)
-        merge_and_split(
-            puzzle_splits=ctx["puzzle_splits"],
-            games_splits=ctx["games_splits"],
-            out_dir=merged_dir,
-            mate_attr="mate_n",
-            ratios=split_ratios,
-            seed=42
-        )
+        # 3. Combina TUTTI i dati per addestrare gli scaler
+        all_data = []
+        for split in ("train", "val", "test"):
+            if split in ctx["puzzle_splits"]:
+                all_data.extend(ctx["puzzle_splits"][split])
+            if split in ctx["games_splits"]:
+                all_data.extend(ctx["games_splits"][split])
 
-    if step is None or step == "merge_and_split":
+        logger.info(f"📊 Totale campioni per normalizzazione: {len(all_data)}")
+
+        # 4. Se la normalizzazione è abilitata
+        if normalize_enabled:
+            # Crea encoder con ottimizzazioni
+            encoder = NormalizationEncoder(
+                scaler_type=pipe_cfg.get("scaler_type", "standard"),
+                clip_range=pipe_cfg.get("clip_range", (-5.0, 5.0)),
+                handle_missing=pipe_cfg.get("handle_missing", "default"),
+                default_rating=float(pipe_cfg.get("default_rating", 1500)),
+                default_clock=float(pipe_cfg.get("default_clock", 30)),
+                copy=True,
+                remove_constant_x_cols=pipe_cfg.get("remove_constant_x_cols", True),
+                remove_strings=pipe_cfg.get("remove_strings", True),
+                keep_puzzle_id=pipe_cfg.get("keep_puzzle_id", True),
+            )
+
+            # 5. Rileva colonne costanti su TUTTI i dati
+            constant_cols = encoder.detect_constant_columns(all_data, x_attr='x')
+            if constant_cols:
+                logger.info(f"🔍 Colonne costanti rimosse da x: {constant_cols}")
+
+            # 6. Addestra gli scaler
+            encoder.fit(all_data)
+
+            # 7. Salva encoder per future inferenze
+            encoder_path = os.path.join(merged_dir, "normalization_encoder.pkl")
+            encoder.save(encoder_path)
+            logger.info(f"💾 Encoder salvato in {encoder_path}")
+
+            # 8. Normalizza e ottimizza ogni split
+            for split in ("train", "val", "test"):
+                combined = []
+                if split in ctx["puzzle_splits"]:
+                    combined.extend(ctx["puzzle_splits"][split])
+                if split in ctx["games_splits"]:
+                    combined.extend(ctx["games_splits"][split])
+
+                if not combined:
+                    logger.warning(f"⚠️ Split {split} vuoto dopo il merge.")
+                    continue
+
+                # Applica normalizzazione + ottimizzazioni
+                normalized = []
+                for item in tqdm(combined, desc=f"Normalizzazione {split}"):
+                    norm_item = encoder.transform(item)
+                    normalized.append(norm_item)
+
+                # Salva
+                out_path = merged_paths[split]
+                torch.save(normalized, out_path)
+                # Stima dimensione
+                size_mb = os.path.getsize(out_path) / (1024 * 1024)
+                logger.info(f"✅ Salvato {split}: {len(normalized)} campioni in {out_path} ({size_mb:.1f} MB)")
+
+        else:
+            # NORMALIZZAZIONE DISABILITATA: salva solo merge (senza normalizzazione)
+            logger.info("⚠️ Normalizzazione disabilitata: salvo solo merge senza normalizzare.")
+            for split in ("train", "val", "test"):
+                combined = []
+                if split in ctx["puzzle_splits"]:
+                    combined.extend(ctx["puzzle_splits"][split])
+                if split in ctx["games_splits"]:
+                    combined.extend(ctx["games_splits"][split])
+
+                if not combined:
+                    continue
+
+                out_path = merged_paths[split]
+                torch.save(combined, out_path)
+                size_mb = os.path.getsize(out_path) / (1024 * 1024)
+                logger.info(f"✅ Salvato {split}: {len(combined)} campioni in {out_path} ({size_mb:.1f} MB)")
+
+    if step is None or step == "merge_and_normalize":
         run_step(
             state,
-            "merge_and_split",
+            "merge_and_normalize",
             is_ready_fn=lambda: all(torch_pt_ready(p) for p in merged_paths.values()),
-            do_fn=_step_merge,
+            do_fn=_step_merge_and_normalize,
         )
 
     logger.info("Pipeline completata con successo.")
     logger.info(f"Dataset train/val/test pronti in: {merged_dir}")
+    if normalize_enabled:
+        logger.info(f"Parametri normalizzazione salvati in: {os.path.join(merged_dir, 'normalization_encoder.pkl')}")
 
 
 if __name__ == "__main__":
