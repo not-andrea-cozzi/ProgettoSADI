@@ -1,42 +1,3 @@
-"""
-MergeSplitter.py
-
-Merge di piu' pool di sample (es. puzzle_splits + games_splits, ciascuno
-gia' un dict {"train": [...], "val": [...], "test": [...]}) seguito da uno
-split train/val/test STRATIFICATO per mate_n.
-
-PERCHE' SERVE (motivazione, non solo implementazione):
-PuzzleGraphDataset e GamesBuilder splittano ciascuno con un criterio
-diverso e NESSUNO dei due garantisce una distribuzione proporzionale di
-mate_n tra i tre split finali:
-  - PuzzleGraphDataset._rows_for_split splitta per PuzzleId dopo shuffle
-    globale (nessuna stratificazione).
-  - GamesBuilder._assign_game_split splitta per game_id per evitare
-    leakage tra split, ma un singolo game_id contiene posizioni con
-    mate_n eterogenei lungo la partita.
-Il vecchio step 5 di DatasetMain (merge "ingenuo") si limitava a
-concatenare train+train, val+val, test+test dalle due sorgenti gia'
-splittate a monte: il risultato non ha NESSUNA garanzia sulla proporzione
-di mate_n tra i tre split finali. Dato che la domanda di ricerca del
-progetto e' "per quali n il GNN prevale sull'LLM?", avere una
-distribuzione di mate_n sbilanciata tra train/val/test (es. quasi tutti i
-mate_n=9/10 finiti per puro caso in un solo split) renderebbe le metriche
-per-n inaffidabili proprio dove contano di piu'.
-
-Il RATING non entra in questa logica: resta un dato continuo usato solo
-a valle per calcolare mean/std di normalizzazione (vedi RatingStats.py),
-non per bilanciare gli split. Bilanciare per rating invece che per mate_n
-sarebbe stato un obiettivo secondario rispetto a quello del progetto.
-
-TRADE-OFF ESPLICITO (va sempre dichiarato, non nascosto): per ottenere la
-stratificazione per mate_n, questa classe FLATTENA tutti i sample delle
-sorgenti in input PRIMA di ri-splittare da zero. Questo rilassa la
-garanzia "split per game_id, no leakage tra split" che GamesBuilder
-otteneva a monte: posizioni dello stesso game_id possono ora finire in
-split diversi. Se il no-leakage per game_id e' piu' importante della
-stratificazione per mate_n per il tuo caso d'uso, questa classe non e' la
-scelta giusta cosi' com'e'.
-"""
 from __future__ import annotations
 
 import logging
@@ -65,7 +26,7 @@ class BaseMergeSplitter(ABC):
     def __init__(
         self,
         out_dir: str,
-        split_ratios: Tuple[float, float, float] = (0.8, 0.1, 0.1),
+        split_ratios: Tuple[float, float, float] = (0.7, 0.1, 0.2),
         seed: int = 42,
     ):
         if len(split_ratios) != 3:

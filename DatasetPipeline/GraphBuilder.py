@@ -50,6 +50,37 @@ SCHEMA DEL SAMPLE (torch_geometric.data.Data):
                                  scelgono mosse diverse, quindi condizionare
                                  la predizione al rating e' informativo
                                  (normalizzato a runtime, vedi RatingStats).
+    game_id         int64[1]    ID PROGRESSIVO E NAMESPACED che identifica
+                                 la sequenza temporale (partita/puzzle) a cui
+                                 appartiene questo sample. NECESSARIO per
+                                 ricostruire le sequenze a valle (vedi
+                                 PuzzleSequenceDataset.group_puzzle_sequences)
+                                 -- senza questo campo dentro l'oggetto Data,
+                                 il raggruppamento in sequenze e l'ordine
+                                 temporale sono irrecuperabili dopo un merge
+                                 + shuffle (MergeSplitter/MateNMergeSplitter
+                                 non preserva alcun indice esterno parallelo).
+                                 Layout bit (int64, ma valori sempre << 2^32):
+                                   bit 31-29: source_tag (vedi SOURCE_TAG_*)
+                                   bit 28-0 : contatore progressivo LOCALE
+                                              alla sorgente (fino a ~536M
+                                              partite/puzzle per sorgente,
+                                              ampio margine).
+                                 Il namespace per source_tag evita collisioni
+                                 quando MergeSplitter flattena insieme
+                                 puzzle_splits e games_splits nello stesso
+                                 merged_{split}.pt: senza namespace, un
+                                 puzzle con game_id locale 5 e una partita
+                                 Lichess con game_id locale 5 finirebbero
+                                 raggruppate nella stessa sequenza da
+                                 PuzzleSequenceDataset (bug silenzioso).
+    ply             int32[1]    ply ASSOLUTO della mossa nella partita/puzzle
+                                 di origine (indice reale, puo' avere buchi:
+                                 es. 1,3,5,7 se si campiona un ply su due).
+                                 Usato per ordinare i sample della stessa
+                                 sequenza in PuzzleSequenceDataset (sort by
+                                 ply) e per calcolare i delta temporali tra
+                                 ply consecutivi nel collate timed.
 
 NOTA EDGE_PAD (fix bug arco fittizio):
 Se una posizione non produce NESSUN arco (nessuna mossa legale, nessun
@@ -73,7 +104,7 @@ RATIO DI COMPRESSIONE SU DISCO (indicativo, board con ~20 pezzi):
 import math
 import json
 import os
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import chess
 import torch
@@ -98,6 +129,41 @@ EDGE_PIN = 2
 EDGE_PAD = 3  # sentinella: arco fittizio di riempimento, MAI un arco reale
 
 CLOCK_CAP_SECONDS = 600.0
+
+# ============================================================================
+# NAMESPACE game_id: evita collisioni tra sorgenti diverse dopo il merge
+# (vedi docstring campo game_id sopra). 3 bit alti = source_tag, 29 bit
+# bassi = contatore locale alla sorgente (fino a 536.870.911 per sorgente).
+# ============================================================================
+SOURCE_TAG_PUZZLE = 0
+SOURCE_TAG_LICHESS = 1
+SOURCE_TAG_FICS = 2
+SOURCE_TAG_CLUB = 3
+
+_GAME_ID_LOCAL_BITS = 29
+_GAME_ID_LOCAL_MASK = (1 << _GAME_ID_LOCAL_BITS) - 1
+_GAME_ID_MAX_LOCAL = _GAME_ID_LOCAL_MASK  # 536_870_911
+
+
+def make_game_id(source_tag: int, local_id: int) -> int:
+    """Combina un source_tag (0-7) e un contatore locale in un game_id
+    globalmente univoco tra sorgenti diverse. Solleva ValueError se
+    local_id eccede lo spazio disponibile (536M+, praticamente mai in
+    pratica) invece di troncare silenziosamente e creare collisioni."""
+    if not (0 <= source_tag <= 7):
+        raise ValueError(f"source_tag={source_tag} deve essere in [0,7] (3 bit).")
+    if not (0 <= local_id <= _GAME_ID_MAX_LOCAL):
+        raise ValueError(
+            f"local_id={local_id} eccede lo spazio riservato per sorgente "
+            f"({_GAME_ID_MAX_LOCAL}): aumentare _GAME_ID_LOCAL_BITS."
+        )
+    return (source_tag << _GAME_ID_LOCAL_BITS) | local_id
+
+
+def decode_game_id(game_id: int) -> Tuple[int, int]:
+    """Inverso di make_game_id: ritorna (source_tag, local_id). Utile per
+    debug/audit su un game_id gia' salvato su disco."""
+    return (game_id >> _GAME_ID_LOCAL_BITS), (game_id & _GAME_ID_LOCAL_MASK)
 
 
 class GraphBuilder:
@@ -179,6 +245,8 @@ class GraphBuilder:
         label: Optional[dict] = None,
         legal_moves: Optional[List["chess.Move"]] = None,
         rating: Optional[float] = None,
+        game_id: Optional[int] = None,
+        ply: Optional[int] = None,
     ) -> Data:
         """Converte board in un sample compresso.
 
@@ -192,6 +260,13 @@ class GraphBuilder:
                    l'indice usato in best_move_idx e l'ordine degli archi
                    edge_attr==0.
             rating: rating del mover, se disponibile (None -> NaN salvato).
+            game_id: ID GIA' NAMESPACED (vedi make_game_id) che identifica
+                   la sequenza/partita di origine. Obbligatorio per poter
+                   ricostruire le sequenze a valle: se None viene salvato
+                   come -1 (sentinella "assente", MAI un game_id valido
+                   dato che make_game_id produce solo valori >= 0).
+            ply: ply assoluto della mossa nella partita/puzzle di origine.
+                   Se None viene salvato come -1 (sentinella "assente").
         """
         if legal_moves is None:
             legal_moves = list(board.legal_moves)
@@ -254,6 +329,11 @@ class GraphBuilder:
         value_target = (1.0 / float(mate_n)) if mate_n and mate_n > 0 else float("nan")
         rating_val = float(rating) if rating is not None else float("nan")
 
+        if game_id is not None and game_id < 0:
+            raise ValueError(f"game_id={game_id} non valido: deve essere >= 0 (usare make_game_id).")
+        game_id_val = int(game_id) if game_id is not None else -1
+        ply_val = int(ply) if ply is not None else -1
+
         # PyG/PyTorch richiedono edge_index int64 per le op interne di
         # indicizzazione: data.edge_index resta long per compatibilita' con
         # InMemoryDataset.collate() e strumenti che lo ispezionano subito
@@ -272,6 +352,13 @@ class GraphBuilder:
         data.best_move_idx = torch.tensor([best_move_idx], dtype=torch.uint8)
         data.value_target = torch.tensor([value_target], dtype=torch.float16)
         data.rating = torch.tensor([rating_val], dtype=torch.float16)
+        # int64 per game_id: anche se i valori namespaced restano ben sotto
+        # 2^32, int64 evita qualunque ambiguita' di overflow/wraparound su
+        # piattaforme diverse ed e' comunque solo 8 byte extra per sample.
+        data.game_id = torch.tensor([game_id_val], dtype=torch.int64)
+        # int32 per ply: assoluto nella partita, puo' avere buchi ma resta
+        # sempre ben sotto 2^31 (nessuna partita ha miliardi di ply).
+        data.ply = torch.tensor([ply_val], dtype=torch.int32)
 
         return data
 
@@ -286,7 +373,13 @@ class GraphBuilder:
         Scritto in ordine: la riga N corrisponde al sample N del dataset
         .pt salvato nello stesso run, cosi' si puo' sempre risalire da un
         sample al suo FEN/mossa originali senza portare stringhe nel
-        tensor dataset usato in training."""
+        tensor dataset usato in training.
+
+        NOTA: questo file resta un ausilio di debug/audit, NON piu' la
+        fonte di verita' per game_id/ply/problem_id (che ora vivono dentro
+        l'oggetto Data stesso, vedi campi game_id/ply nello schema). Se il
+        .jsonl si corrompe o si disallinea, le sequenze restano comunque
+        ricostruibili dai soli tensori nel .pt."""
         os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
         tmp_path = out_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:

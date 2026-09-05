@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+AugmentGamesMain.py
+
+Variante "solo games" di DatasetMain.py: genera/aggiorna il train set
+games (nessun puzzle) e produce i tre .pt finali + rating_stats.json.
+Nome file assunto (non specificato nell'originale incollato): se il tuo
+script si chiama diversamente, rinomina pure senza altre modifiche.
+"""
 
 import logging
 import os
@@ -9,10 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import yaml
 from tqdm import tqdm
-
 from DatasetPipeline.GamesBuilder import GamesBuilder, SourceSpec
 from DatasetPipeline.PipelineState import PipelineState, file_ready, torch_pt_ready
 from DatasetPipeline.RatingStats import compute_rating_stats, save_rating_stats
+from DatasetPipeline.TimeStatBuilder import load_avg_time_by_rating as _load_avg_time_by_rating_json
+from DatasetPipeline.MergeSplitter import MateNMergeSplitter
 
 logger = logging.getLogger("games_only")
 
@@ -63,13 +72,13 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
     return cfg
 
 
-def load_avg_time_by_rating(path: str) -> Dict[str, float]:
+def load_avg_time_by_rating(path: str) -> Dict[int, float]:
     if not file_ready(path):
         return {}
     try:
-        with open(path, "r") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
+        return _load_avg_time_by_rating_json(path)
+    except Exception as e:
+        logger.warning(f"avg_time_by_rating_json in {path} illeggibile ({e}), uso dizionario vuoto.")
         return {}
 
 
@@ -86,7 +95,7 @@ def main():
     raw_cfg = cfg.get("raw_data", {})
     games_cfg = cfg.get("games_pipeline", {}) or cfg.get("club_games_timed", {})
 
-    # Sezione splits (se non presente, default 80/10/10)
+    # Sezione splits (se non presente, default 65/15/20)
     split_cfg = cfg.get("splits", {})
     split_ratios = (
         split_cfg.get("train_ratio", 0.65),
@@ -239,45 +248,38 @@ def main():
     else:
         # Esecuzione dello step
         logger.info("[RUN] Generazione dei grafi da partite...")
-        games_splits, _ = step_games_pipeline()
+        try:
+            games_splits, _ = step_games_pipeline()
+        except PipelineConfigError:
+            state.mark_failed("games_pipeline", "Config Error")
+            raise
+        except Exception as e:
+            state.mark_failed("games_pipeline", str(e))
+            raise
         state.mark_done("games_pipeline")
         logger.info("[DONE] Generazione completata.")
 
     # ========================================================================
     # STEP 2: MERGE + RATING STATS (sempre eseguito, anche se i file esistono)
     # ========================================================================
-    merged_paths = {
-        split: os.path.join(merged_dir, f"merged_{split}.pt")
-        for split in ("train", "val", "test")
-    }
     rating_stats_path = os.path.join(merged_dir, "rating_stats.json")
-
     logger.info("[RUN] Merge dei tre split e calcolo rating stats...")
 
-    # (Qui non ci sono puzzle, ma la logica è identica a DatasetMain.py)
-    # Se in futuro si volessero aggiungere puzzle, basterà caricare anche quelli
-    puzzle_splits = {}  # per compatibilità, ma non usato
+    puzzle_splits: Dict[str, List[Any]] = {}
+    splitter = MateNMergeSplitter(out_dir=merged_dir, split_ratios=split_ratios, seed=42)
+    merged = splitter.run(games_splits, puzzle_splits)
+    merged_paths_written = splitter.save(merged)
 
     for split in ("train", "val", "test"):
-        combined = []
-        # Nel nostro caso abbiamo solo games_splits
-        if split in games_splits:
-            combined.extend(games_splits[split])
-        # Se ci fossero puzzle, li aggiungeremmo qui
-
-        if not combined:
-            logger.warning(f"Split {split} vuoto dopo il merge.")
+        n_samples = len(merged[split])
+        if n_samples == 0:
+            logger.warning(f"Split {split} vuoto dopo il merge stratificato per mate_n.")
             continue
-
-        out_path = merged_paths[split]
-        tmp_path = out_path + ".tmp"
-        torch.save(combined, tmp_path)
-        os.replace(tmp_path, out_path)
-        size_mb = os.path.getsize(out_path) / (1024 * 1024)
-        logger.info(f"Salvato {split}: {len(combined)} campioni in {out_path} ({size_mb:.2f} MB)")
+        size_mb = os.path.getsize(merged_paths_written[split]) / (1024 * 1024)
+        logger.info(f"Salvato {split}: {n_samples} campioni in {merged_paths_written[split]} ({size_mb:.2f} MB)")
 
     # Calcola rating_stats sul train
-    train_data = torch.load(merged_paths["train"], weights_only=False) if file_ready(merged_paths["train"]) else []
+    train_data = merged["train"]
     if not train_data:
         raise PipelineConfigError("Merge del train set vuoto: impossibile calcolare rating_stats.")
 

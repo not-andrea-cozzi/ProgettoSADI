@@ -7,11 +7,22 @@ GraphBuilder.py) a partire dal CSV Lichess puzzle standard:
     PuzzleId, FEN, Moves, Rating, RatingDeviation, Popularity, NbPlays,
     Themes, GameUrl, OpeningTags, DailyDate
 
-Solo i campi utili alla predizione della best move (+ mate_n ausiliario)
-finiscono nel tensor .pt: PuzzleId/GameUrl/OpeningTags/DailyDate/
-RatingDeviation/Popularity/NbPlays NON entrano nel sample compresso (non
-servono al modello per predire la mossa) — vengono pero' preservati nel
-.jsonl di debug per audit/tracciabilita', insieme a fen/best_move_uci.
+Solo i campi utili alla predizione della best move (+ mate_n ausiliario,
++ game_id/ply per la ricostruzione delle sequenze) finiscono nel tensor
+.pt: PuzzleId/GameUrl/OpeningTags/DailyDate/RatingDeviation/Popularity/
+NbPlays NON entrano nel sample compresso (non servono al modello) —
+vengono pero' preservati nel .jsonl di debug per audit/tracciabilita',
+insieme a fen/best_move_uci.
+
+NOTA game_id/ply (fix rispetto alla versione precedente):
+Ogni puzzle riceve un game_id NAMESPACED (vedi GraphBuilder.make_game_id,
+source_tag=SOURCE_TAG_PUZZLE) progressivo, assegnato in process() PRIMA
+di costruire i Data del puzzle stesso: tutti i ply dello stesso puzzle
+condividono lo stesso game_id. Questo campo vive DENTRO l'oggetto Data
+(non solo nel .jsonl di debug), quindi sopravvive a qualunque merge/
+shuffle a valle (MergeSplitter) senza bisogno di allineare file esterni.
+Il game_id progressivo e' locale allo split corrente (self.split): non e'
+il PuzzleId originale del CSV, che resta comunque nel .jsonl per audit.
 """
 import os
 import random
@@ -23,7 +34,7 @@ import pandas as pd
 from tqdm import tqdm
 from torch_geometric.data import InMemoryDataset, Data
 
-from DatasetPipeline.GraphBuilder import GraphBuilder
+from DatasetPipeline.GraphBuilder import GraphBuilder, make_game_id, SOURCE_TAG_PUZZLE
 
 
 def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
@@ -33,6 +44,12 @@ def merge_and_split(puzzle_splits: dict, games_splits: dict, out_dir: str,
     bilanciando per mate_n (schema compresso: sempre un uint8 tensor
     scalare data.mate_n, nessuna ambiguita' di formato da gestire come
     nella versione precedente con tuple/liste/attributi alternativi).
+
+    NOTA: per uno split stratificato coerente su tutto il progetto, usare
+    MergeSplitter.MateNMergeSplitter invece di questa funzione legacy:
+    quella classe fa lo stesso lavoro con logging della distribuzione e
+    scrittura atomica (tmp + os.replace). Questa funzione resta per
+    retrocompatibilita' con chiamanti esistenti.
     """
     from collections import defaultdict
 
@@ -98,11 +115,18 @@ class PuzzleGraphDataset(InMemoryDataset):
     """Dataset puzzle in schema compresso. Ogni riga del CSV con un tema
     mateInN nel range richiesto genera una sequenza di sample (uno per ogni
     ply del lato che deve dare matto), ciascuno compresso secondo lo
-    schema di GraphBuilder.board_to_pyg_data.
+    schema di GraphBuilder.board_to_pyg_data. Tutti i sample dello stesso
+    puzzle condividono lo stesso game_id namespaced (SOURCE_TAG_PUZZLE) e
+    portano il proprio ply assoluto, cosi' la sequenza e' ricostruibile a
+    valle anche dopo merge/shuffle.
 
     Il .jsonl di debug (fen, best_move_uci, puzzle_id, mate_n, rating,
-    ply_idx) viene scritto accanto al processed_paths[0], stesso ordine dei
-    sample nel .pt, per audit senza portare stringhe nel tensor dataset."""
+    ply_idx, game_id) viene scritto accanto al processed_paths[0], stesso
+    ordine dei sample nel .pt, per audit senza portare stringhe nel tensor
+    dataset. Il game_id compare anche nel .jsonl (decodificabile con
+    GraphBuilder.decode_game_id) per poter incrociare i due file durante
+    il debug, ma NON e' piu' l'unica fonte di verita': se il .jsonl si
+    corrompe, le sequenze restano ricostruibili dal solo .pt."""
 
     def __init__(self, csv_path, root, split="train", mate_range=(1, 5),
                  max_puzzles=None, seed=42, avg_time_by_rating=None, chunksize=50_000,
@@ -173,6 +197,13 @@ class PuzzleGraphDataset(InMemoryDataset):
         data_list: List[Data] = []
         debug_records: List[Dict[str, Any]] = []
 
+        # Contatore progressivo LOCALE allo split corrente: un puzzle = una
+        # sequenza = un game_id. Namespaced con SOURCE_TAG_PUZZLE cosi' non
+        # collide con i game_id assegnati da GamesBuilder/ClubGamesTimedBuilder
+        # (source_tag diversi) quando tutto finisce nello stesso
+        # merged_{split}.pt via MergeSplitter.
+        local_game_counter = 0
+
         for row in tqdm(split_rows, desc=f"Costruzione grafi puzzle [{self.split}]"):
             uci_moves = row["Moves"].split()
             if not uci_moves:
@@ -188,6 +219,13 @@ class PuzzleGraphDataset(InMemoryDataset):
                 board.push(first_move)
             else:
                 continue
+
+            # ply assoluto: la mossa iniziale (uci_moves[0], gia' giocata
+            # sopra) e' il ply 0 della sequenza FEN; i ply successivi
+            # incrementano di 1 per ogni mezza-mossa, esattamente come
+            # l'indice board.ply() interno di python-chess.
+            puzzle_game_id = make_game_id(SOURCE_TAG_PUZZLE, local_game_counter)
+            has_any_sample = False
 
             for ply_idx, uci in enumerate(uci_moves[1:], start=1):
                 move = chess.Move.from_uci(uci)
@@ -213,12 +251,17 @@ class PuzzleGraphDataset(InMemoryDataset):
                     label=label,
                     legal_moves=legal,
                     rating=puzzle_rating,
+                    game_id=puzzle_game_id,
+                    ply=ply_idx,
                 )
                 data_list.append(d)
+                has_any_sample = True
 
                 debug_records.append({
                     "problem_id": f"puzzle_{row['PuzzleId']}_{ply_idx}",
                     "puzzle_id": row["PuzzleId"],
+                    "game_id": puzzle_game_id,
+                    "ply": ply_idx,
                     "fen": board.fen(),
                     "best_move_uci": move.uci(),
                     "mate_n": current_mate_n,
@@ -234,6 +277,13 @@ class PuzzleGraphDataset(InMemoryDataset):
                 })
 
                 board.push(move)
+
+            # Il contatore avanza solo se il puzzle ha prodotto almeno un
+            # sample: evita di "consumare" game_id per puzzle scartati
+            # subito (nessun impatto funzionale, ma tiene il namespace
+            # locale piu' denso/compatto per audit).
+            if has_any_sample:
+                local_game_counter += 1
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])

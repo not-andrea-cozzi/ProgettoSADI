@@ -2,8 +2,13 @@ pipeline:
   dataset_dir: "Dataset"
   log_file: "club_games_timed.log"
   log_level: "INFO"
-  force_recompute: true          # <--- IMPOSTA A TRUE per rigenerare i file con le nuove regole
-  state_file: "pipeline_state.json"
+  force_recompute: false          # <--- IMPOSTA A TRUE per rigenerare i file con le nuove regole
+  # FIX: prima era "pipeline_state.json", lo stesso file usato di default
+  # da Yaml/main.yaml per DatasetMain.py. Le due pipeline scrivono la
+  # stessa chiave "games_pipeline" nello stesso file: non rompe nulla
+  # (ognuna verifica i propri .pt attesi con torch_pt_ready), ma e'
+  # confusionario da leggere in retrospettiva. State file separato.
+  state_file: "pipeline_state_games_timed.json"
   games_subfolder: "Games"
   merged_subfolder: "Train"
 
@@ -14,20 +19,33 @@ engine:
   syzygy_path: null
 
 raw_data:
-  external_csv: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn"
+  # FIX BLOCCANTE: era vuoto (""). Con fics_pgn/external_csv/games_zst/
+  # club_csv tutti vuoti, "sources" restava una lista vuota e
+  # AugmentGamesMain.py falliva subito con PipelineConfigError("Nessuna
+  # sorgente valida trovata..."), ancora prima di toccare Stockfish.
+  # Path assunto dal fics_pgn gia' usato in Yaml/main.yaml per lo stesso
+  # progetto (RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2):
+  # verifica che sia quello giusto o sostituiscilo con il tuo file FICS
+  # reale, ma DEVE essere un path esistente non vuoto.
+  external_csv: ""
   games_zst: ""
-  fics_pgn: ""
+  fics_pgn: "RawData/ficsgamesdb_201701_chess_movetimes_4339526.pgn.bz2"
   club_csv: ""
 
 club_games_timed:
   output_filename: "games_timed_test_one.pt"
-  jsonl_filename: "games_imed_test_one.jsonl"
-  
+  # NOTA: jsonl_filename non e' letto da nessuna parte in
+  # AugmentGamesMain.py ne' in GamesBuilder -- il .jsonl di debug viene
+  # nominato automaticamente da GamesBuilder._save_splits a partire da
+  # output_filename, non da questa chiave. Lasciata solo per riferimento,
+  # non ha alcun effetto sulla run (corretto anche il typo "imed").
+  jsonl_filename: "games_timed_test_one.jsonl"
+
   # --- MODIFICHE PER SALTO E LIMITE ---
-  fics_skip_games: 300000        
-  fics_max_games: 83000         
+  fics_skip_games: 300000
+  fics_max_games: 83000
   # ------------------------------------
-  
+
   mate_range_min: 1
   mate_range_max: 10
   time_limit_seconds: 0.2

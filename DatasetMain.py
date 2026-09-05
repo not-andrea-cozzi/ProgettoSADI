@@ -8,6 +8,17 @@ from tqdm import tqdm
 import yaml
 from DatasetPipeline.GamesBuilder import GamesBuilder, SourceSpec
 from DatasetPipeline.PuzzleGraphDataset import PuzzleGraphDataset
+# FIX: merge_and_split (in PuzzleGraphDataset.py) faceva gia' uno split
+# stratificato per mate_n ma non veniva mai chiamato da main() -- lo step
+# 5 concatenava semplicemente train+train/val+val/test+test dalle due
+# sorgenti gia' presplittate a monte, senza alcuna garanzia sulla
+# proporzione di mate_n tra gli split finali. La stessa logica di
+# stratificazione ora vive in MergeSplitter.MateNMergeSplitter, chiamata
+# esplicitamente in STEP 5 qui sotto.
+from DatasetPipeline.MergeSplitter import MateNMergeSplitter
+# FIX: c'era uno spazio dopo il punto ("DatasetPipeline. RatingStats"),
+# che rendeva questo un import non valido (ModuleNotFoundError) e faceva
+# fallire l'intero script prima ancora di eseguire una riga di main().
 from DatasetPipeline.RatingStats import compute_rating_stats, save_rating_stats
 from DatasetPipeline.TimeStatBuilder import TimeStatsBuilder, load_avg_time_by_rating
 from DatasetPipeline.PipelineState import PipelineState, retry, file_ready, torch_pt_ready
@@ -237,18 +248,6 @@ def main():
     # ========================================================================
     # STEP 1: Statistiche tempo medio per rating
     # ========================================================================
-    # FIX: prima questo step chiamava require_file() incondizionato su
-    # raw_data.games_zst, quindi con games_zst assente/vuoto (come nel
-    # main.yaml di esempio, dove vale "") l'intera pipeline si bloccava gia'
-    # qui con un PipelineConfigError -- anche se games_zst e' trattato come
-    # sorgente OPZIONALE ovunque altrove (vedi _step_games_pipeline poco
-    # sotto, che salta silenziosamente Lichess/FICS/Club se il rispettivo
-    # path e' assente). Ora il comportamento e' coerente: se games_zst non
-    # e' configurato/il file non esiste E non c'e' gia' un time_stats_path
-    # valido da una run precedente, lo step viene saltato con un log
-    # informativo e avg_time_by_rating resta {} (GamesBuilder e
-    # PuzzleGraphDataset gestiscono gia' correttamente un dizionario vuoto,
-    # ricadendo sui loro fallback default_move_seconds/clock costante).
     games_zst_path = raw_cfg.get("games_zst")
     games_zst_available = bool(games_zst_path) and os.path.exists(games_zst_path)
 
@@ -493,25 +492,20 @@ def main():
                 for s in ("train", "val", "test")
             }
 
+       
+        splitter = MateNMergeSplitter(out_dir=merged_dir, split_ratios=split_ratios, seed=42)
+        merged = splitter.run(ctx["puzzle_splits"], ctx["games_splits"])
+        merged_paths_written = splitter.save(merged)
+
         for split in ("train", "val", "test"):
-            combined = []
-            if split in ctx["puzzle_splits"]:
-                combined.extend(ctx["puzzle_splits"][split])
-            if split in ctx["games_splits"]:
-                combined.extend(ctx["games_splits"][split])
-
-            if not combined:
-                logger.warning(f"Split {split} vuoto dopo il merge.")
+            n_samples = len(merged[split])
+            if n_samples == 0:
+                logger.warning(f"Split {split} vuoto dopo il merge stratificato per mate_n.")
                 continue
+            size_mb = os.path.getsize(merged_paths_written[split]) / (1024 * 1024)
+            logger.info(f"Salvato {split}: {n_samples} campioni in {merged_paths_written[split]} ({size_mb:.2f} MB)")
 
-            out_path = merged_paths[split]
-            tmp_path = out_path + ".tmp"
-            torch.save(combined, tmp_path)
-            os.replace(tmp_path, out_path)
-            size_mb = os.path.getsize(out_path) / (1024 * 1024)
-            logger.info(f"Salvato {split}: {len(combined)} campioni in {out_path} ({size_mb:.2f} MB)")
-
-        train_data = torch.load(merged_paths["train"], weights_only=False) if file_ready(merged_paths["train"]) else []
+        train_data = merged["train"]
         if not train_data:
             raise PipelineConfigError("Merge del train set vuoto: impossibile calcolare rating_stats.")
 
